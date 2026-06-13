@@ -91,15 +91,100 @@ services:
     depends_on:
       - api
 
-  camera-worker-placeholder:
+  camera-worker-01:
     build:
       context: .
       dockerfile: backend/Dockerfile
     restart: always
-    command: python -c "import time; time.sleep(999999)"
+    depends_on:
+      redis:
+        condition: service_healthy
+      mediamtx:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+    command: python -m backend.workers.camera_worker --camera-id CAM-01 --rtsp-url rtsp://mediamtx:8554/cam01
+    environment: &camera_worker_env
+      DATABASE_URL: postgresql+asyncpg://spatialscore:${DB_PASSWORD}@postgres:5432/spatialscore
+      WORKER_DATABASE_URL: postgresql://spatialscore:${DB_PASSWORD}@postgres:5432/spatialscore
+      REDIS_URL: redis://redis:6379/0
+      FAISS_INDEX_PATH: ${FAISS_INDEX_PATH:-/app/data/faiss/faiss_index.bin}
+      EMBEDDING_MAP_PATH: ${EMBEDDING_MAP_PATH:-/app/data/faiss/embedding_map.json}
+      MODELS_DIR: ${MODELS_DIR:-/app/models}
+      CONFIGS_DIR: /app/configs
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      FACE_SIMILARITY_THRESHOLD: ${FACE_SIMILARITY_THRESHOLD:-0.5}
+      CAMERA_TARGET_FPS: ${CAMERA_TARGET_FPS:-10}
+      CAMERA_FRAME_TTL_SECONDS: ${CAMERA_FRAME_TTL_SECONDS:-5}
+      JWT_SECRET: ${JWT_SECRET}
     volumes:
       - ./models:/app/models:ro
       - ./configs:/app/configs:ro
+      - ./data:/app/data:ro
+      - ./logs:/app/logs:rw
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    runtime: nvidia
+
+  camera-worker-02:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: always
+    depends_on:
+      redis:
+        condition: service_healthy
+      mediamtx:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+    command: python -m backend.workers.camera_worker --camera-id CAM-02 --rtsp-url rtsp://mediamtx:8554/cam02
+    environment: *camera_worker_env
+    volumes:
+      - ./models:/app/models:ro
+      - ./configs:/app/configs:ro
+      - ./data:/app/data:ro
+      - ./logs:/app/logs:rw
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    runtime: nvidia
+
+  camera-worker-03:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: always
+    depends_on:
+      redis:
+        condition: service_healthy
+      mediamtx:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+    command: python -m backend.workers.camera_worker --camera-id CAM-03 --rtsp-url rtsp://mediamtx:8554/cam03
+    environment: *camera_worker_env
+    volumes:
+      - ./models:/app/models:ro
+      - ./configs:/app/configs:ro
+      - ./data:/app/data:ro
+      - ./logs:/app/logs:rw
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     runtime: nvidia
 
   scoring-engine-placeholder:

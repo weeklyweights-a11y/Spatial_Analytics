@@ -1,0 +1,18 @@
+# CPU-only override for dev VMs without GPU quota.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.cpu.yml up
+services:
+  api:
+    runtime: null
+    deploy: {}
+
+  camera-worker-01:
+    runtime: null
+    deploy: {}
+
+  camera-worker-02:
+    runtime: null
+    deploy: {}
+
+  camera-worker-03:
+    runtime: null
+    deploy: {}
