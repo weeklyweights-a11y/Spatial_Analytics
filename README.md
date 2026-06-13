@@ -81,10 +81,10 @@ cd dashboard && npm install && npm test
 
 ```bash
 # CPU-only VM (no GPU quota):
-docker compose -f docker-compose.yml -f docker-compose.cpu.yml up -d --build
-
-# GPU production:
 docker compose up -d --build
+
+# GPU production VM:
+# docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
 
 # Push test RTMP (host mediamtx when on VM):
 python scripts/simulate_streams.py --video test_data/test.mp4 --camera-id cam01 --host mediamtx

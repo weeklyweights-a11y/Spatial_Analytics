@@ -72,12 +72,12 @@ services:
       - ./data:/app/data:rw
       - ./configs:/app/configs:ro
       - ./logs:/app/logs:rw
+      - ./test_data:/app/test_data:ro
     deploy:
       resources:
         limits:
           cpus: "4"
           memory: 4G
-    runtime: nvidia
 
   dashboard:
     build:
@@ -122,14 +122,6 @@ services:
       - ./configs:/app/configs:ro
       - ./data:/app/data:ro
       - ./logs:/app/logs:rw
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-    runtime: nvidia
 
   camera-worker-02:
     build:
@@ -150,14 +142,6 @@ services:
       - ./configs:/app/configs:ro
       - ./data:/app/data:ro
       - ./logs:/app/logs:rw
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-    runtime: nvidia
 
   camera-worker-03:
     build:
@@ -178,14 +162,6 @@ services:
       - ./configs:/app/configs:ro
       - ./data:/app/data:ro
       - ./logs:/app/logs:rw
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-    runtime: nvidia
 
   scoring-engine-placeholder:
     build:

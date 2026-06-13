@@ -3,16 +3,31 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Generator, Iterator
+from collections.abc import Iterator
 from typing import Callable, Optional
 
+import cv2
 import numpy as np
-import supervision as sv
 from loguru import logger
 
 
 class StreamReconnectError(Exception):
     """Raised when stream fails persistently."""
+
+
+def _opencv_frame_generator(rtsp_url: str) -> Iterator[np.ndarray]:
+    """Read BGR frames from RTSP via OpenCV (more reliable than sv generator for MediaMTX)."""
+    cap = cv2.VideoCapture(rtsp_url)
+    if not cap.isOpened():
+        raise RuntimeError(f"Could not open video at {rtsp_url}")
+    try:
+        while True:
+            ok, frame = cap.read()
+            if not ok or frame is None:
+                raise RuntimeError(f"RTSP read failed at {rtsp_url}")
+            yield frame
+    finally:
+        cap.release()
 
 
 def frame_generator_with_reconnect(
@@ -30,8 +45,7 @@ def frame_generator_with_reconnect(
 
     while True:
         try:
-            gen = sv.get_video_frames_generator(source_path=rtsp_url)
-            for frame in gen:
+            for frame in _opencv_frame_generator(rtsp_url):
                 if disconnect_at is not None and on_reconnected:
                     downtime = time.monotonic() - disconnect_at
                     on_reconnected(downtime)

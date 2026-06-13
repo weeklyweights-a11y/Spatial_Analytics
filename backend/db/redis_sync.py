@@ -63,16 +63,16 @@ def get_stream_length() -> int:
 
 
 def read_activity_events(last_id: str = "0", count: int = 100) -> list[dict[str, Any]]:
-    """XREAD from activity_stream; parse JSON-encoded list/dict fields."""
+    """Read recent entries from activity_stream; parse JSON-encoded list/dict fields."""
     r = get_sync_redis()
-    result = r.xread({ACTIVITY_STREAM: last_id}, count=count, block=0)
+    start = "-" if last_id in ("0", "0-0") else f"({last_id}"
+    messages = r.xrange(ACTIVITY_STREAM, min=start, max="+", count=count)
     events: list[dict[str, Any]] = []
-    for _stream, messages in result:
-        for msg_id, fields in messages:
-            parsed: dict[str, Any] = {"id": msg_id}
-            for key, value in fields.items():
-                parsed[key] = _parse_redis_field(value)
-            events.append(parsed)
+    for msg_id, fields in messages:
+        parsed: dict[str, Any] = {"id": msg_id}
+        for key, value in fields.items():
+            parsed[key] = _parse_redis_field(value)
+        events.append(parsed)
     return events
 
 

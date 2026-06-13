@@ -82,8 +82,13 @@ class CameraWorker:
             len(zones),
         )
 
-        self.label_annotator = sv.LabelAnnotator(text_scale=0.5, text_thickness=1)
-        self.trace_annotator = sv.TraceAnnotator(thickness=2, trace_length=30)
+        track_color = sv.ColorLookup.TRACK
+        self.label_annotator = sv.LabelAnnotator(
+            text_scale=0.5, text_thickness=1, color_lookup=track_color
+        )
+        self.trace_annotator = sv.TraceAnnotator(
+            thickness=2, trace_length=30, color_lookup=track_color
+        )
         self.heatmap_annotator = sv.HeatMapAnnotator()
 
         self._index_path = Path(self.settings.FAISS_INDEX_PATH)
@@ -180,8 +185,11 @@ class CameraWorker:
         if detections.is_empty():
             return annotated
 
+        tracker_ids = detections.tracker_id
+        if tracker_ids is None:
+            tracker_ids = []
         labels = []
-        for i, tid in enumerate(detections.tracker_id or []):
+        for i, tid in enumerate(tracker_ids):
             act = activities[i] if i < len(activities) else "idle"
             name = self.linker.get_display_name(int(tid)) if tid is not None else "Unknown"
             labels.append(f"{name} | {act}")

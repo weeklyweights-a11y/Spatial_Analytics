@@ -1,0 +1,35 @@
+# GPU production override — use on g2-standard-8 + L4 VM with NVIDIA Container Toolkit.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+services:
+  api:
+    runtime: nvidia
+
+  camera-worker-01:
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  camera-worker-02:
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  camera-worker-03:
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

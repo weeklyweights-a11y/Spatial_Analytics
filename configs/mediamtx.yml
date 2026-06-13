@@ -7,3 +7,11 @@ rtspAddress: :8554
 pathDefaults:
   source: publisher
   overridePublisher: yes
+
+paths:
+  cam01:
+    source: publisher
+  cam02:
+    source: publisher
+  cam03:
+    source: publisher

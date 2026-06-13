@@ -32,6 +32,12 @@ def main() -> None:
         default="127.0.0.1",
         help="MediaMTX host (use mediamtx when running inside compose network)",
     )
+    parser.add_argument(
+        "--fps",
+        type=int,
+        default=5,
+        help="Output frame rate for simulated CCTV feed (default: 5)",
+    )
     parser.add_argument("--loop", action="store_true", default=True, help="Loop video (default: on)")
     args = parser.parse_args()
 
@@ -57,7 +63,7 @@ def main() -> None:
             "-i",
             str(video),
             "-r",
-            "10",
+            str(args.fps),
             "-c:v",
             "libx264",
             "-preset",
@@ -67,8 +73,9 @@ def main() -> None:
             rtmp_url,
         ]
     )
-    print(f"Streaming {video} -> {rtmp_url} at 10 FPS")
-    subprocess.run(cmd, check=False)
+    print(f"Streaming {video} -> {rtmp_url} at {args.fps} FPS")
+    proc = subprocess.Popen(cmd)
+    proc.wait()
 
 
 if __name__ == "__main__":

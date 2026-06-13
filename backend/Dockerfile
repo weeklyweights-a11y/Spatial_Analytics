@@ -10,8 +10,8 @@ COPY backend/requirements.txt /app/backend/requirements.txt
 RUN pip install --no-cache-dir -r backend/requirements.txt
 
 COPY backend /app/backend
-COPY scripts/docker-entrypoint.sh /app/scripts/docker-entrypoint.sh
-RUN chmod +x /app/scripts/docker-entrypoint.sh
+COPY scripts /app/scripts
+RUN chmod +x /app/scripts/docker-entrypoint.sh /app/scripts/*.sh 2>/dev/null || true
 
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1

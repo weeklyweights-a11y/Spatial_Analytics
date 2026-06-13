@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Worker, placeholder, or other explicit command — skip API startup.
+if [ $# -gt 0 ]; then
+  exec "$@"
+fi
+
 echo "Waiting for PostgreSQL..."
 until python -c "
 import os, sys

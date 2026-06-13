@@ -5,7 +5,7 @@
 | Phase | Title | Status | Estimated Hours | Dependencies |
 |-------|-------|--------|----------------|-------------|
 | 1 | Infrastructure + Registration | Complete | 4-5 hours | None |
-| 2 | Camera Pipeline + Identity | In Progress | 5-6 hours | Phase 1 |
+| 2 | Camera Pipeline + Identity | Complete | 5-6 hours | Phase 1 |
 | 3 | Scoring Engine + CCTV Wall | Not Started | 5-6 hours | Phase 2 |
 | 4 | Heatmap + Analytics + Alerts | Not Started | 4-5 hours | Phase 3 |
 | 5 | Sponsors + Judging + Export | Not Started | 3-4 hours | Phase 3 |

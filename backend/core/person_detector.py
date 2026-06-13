@@ -53,10 +53,14 @@ class PersonDetector:
         self.confidence_threshold = confidence_threshold or settings.DEIMV2_CONFIDENCE_THRESHOLD
         providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
         self.session = ort.InferenceSession(str(path), providers=providers)
-        self.input_name = self.session.get_inputs()[0].name
-        shape = self.session.get_inputs()[0].shape
+        self.input_names = [i.name for i in self.session.get_inputs()]
+        image_input = self.session.get_inputs()[0]
+        self.input_name = image_input.name
+        shape = image_input.shape
         self.input_h = int(shape[2]) if isinstance(shape[2], int) else 640
         self.input_w = int(shape[3]) if isinstance(shape[3], int) else 640
+        self._extra_input_names = [name for name in self.input_names if name != self.input_name]
+        self.output_names = [o.name for o in self.session.get_outputs()]
 
     def _preprocess(self, frame: np.ndarray) -> tuple[np.ndarray, float, tuple[int, int]]:
         h, w = frame.shape[:2]
@@ -69,10 +73,72 @@ class PersonDetector:
         blob = padded.transpose(2, 0, 1)[np.newaxis, ...]
         return blob, scale, (w, h)
 
+    def _parse_deimv2_detection_output(
+        self,
+        output_map: dict[str, np.ndarray],
+        scale: float,
+        orig_size: tuple[int, int],
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Parse DEIMv2 exports that emit separate labels/boxes/scores tensors."""
+        w, h = orig_size
+        boxes_raw = np.asarray(output_map["boxes"])
+        scores_raw = np.asarray(output_map["scores"])
+        labels_raw = output_map.get("labels")
+        if labels_raw is not None:
+            labels_raw = np.asarray(labels_raw)
+
+        boxes_flat = boxes_raw.reshape(-1, boxes_raw.shape[-1])
+        scores_flat = scores_raw.reshape(-1)
+        labels_flat = labels_raw.reshape(-1) if labels_raw is not None else None
+
+        boxes_list: list[np.ndarray] = []
+        scores_list: list[float] = []
+        kpts_list: list[np.ndarray] = []
+
+        for i, score in enumerate(scores_flat):
+            if float(score) < self.confidence_threshold:
+                continue
+            if labels_flat is not None and int(labels_flat[i]) != 0:
+                continue
+            box = boxes_flat[i].astype(np.float32).copy()
+            if box.max() <= 1.0:
+                if box[2] <= 1.0 and box[3] <= 1.0 and box[2] < box[0]:
+                    cx, cy, bw, bh = box
+                    x1 = (cx - bw / 2) * w
+                    y1 = (cy - bh / 2) * h
+                    x2 = (cx + bw / 2) * w
+                    y2 = (cy + bh / 2) * h
+                    box = np.array([x1, y1, x2, y2], dtype=np.float32)
+                else:
+                    box[0::2] *= w
+                    box[1::2] *= h
+            box[0::2] = np.clip(box[0::2], 0, w)
+            box[1::2] = np.clip(box[1::2], 0, h)
+            boxes_list.append(box)
+            scores_list.append(float(score))
+            kpts_list.append(np.zeros((49, 3), dtype=np.float32))
+
+        if not boxes_list:
+            return (
+                np.zeros((0, 4), dtype=np.float32),
+                np.zeros((0,), dtype=np.float32),
+                np.zeros((0, 49, 3), dtype=np.float32),
+            )
+
+        boxes = np.stack(boxes_list).astype(np.float32)
+        scores_arr = np.array(scores_list, dtype=np.float32)
+        keypoints = np.stack(kpts_list).astype(np.float32)
+        keep = _nms_xyxy(boxes, scores_arr)
+        return boxes[keep], scores_arr[keep], keypoints[keep]
+
     def _parse_outputs(
         self, outputs: list[np.ndarray], scale: float, orig_size: tuple[int, int]
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Parse ONNX outputs into boxes, scores, keypoints."""
+        output_map = {name: np.asarray(out) for name, out in zip(self.output_names, outputs)}
+        if "boxes" in output_map and "scores" in output_map:
+            return self._parse_deimv2_detection_output(output_map, scale, orig_size)
+
         w, h = orig_size
         boxes_list: list[np.ndarray] = []
         scores_list: list[float] = []
@@ -144,8 +210,20 @@ class PersonDetector:
         keep = _nms_xyxy(boxes, scores)
         return boxes[keep], scores[keep], keypoints[keep]
 
+    def _build_input_feed(self, blob: np.ndarray, orig_size: tuple[int, int]) -> dict[str, np.ndarray]:
+        """Build ONNX input feed, including DEIMv2 exports that need orig_target_sizes."""
+        feed: dict[str, np.ndarray] = {self.input_name: blob}
+        w, h = orig_size
+        for name in self._extra_input_names:
+            lowered = name.lower()
+            if "orig_target" in lowered or "orig_size" in lowered or "im_shape" in lowered:
+                feed[name] = np.array([[h, w]], dtype=np.int64)
+            elif "scale" in lowered:
+                feed[name] = np.array([[1.0, 1.0]], dtype=np.float32)
+        return feed
+
     def detect(self, frame: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Detect persons; returns boxes (N,4), scores (N,), keypoints (N,49,3)."""
         blob, scale, orig_size = self._preprocess(frame)
-        outputs = self.session.run(None, {self.input_name: blob})
+        outputs = self.session.run(None, self._build_input_feed(blob, orig_size))
         return self._parse_outputs(outputs, scale, orig_size)

@@ -1,18 +1,5 @@
-# CPU-only override for dev VMs without GPU quota.
-# Usage: docker compose -f docker-compose.yml -f docker-compose.cpu.yml up
-services:
-  api:
-    runtime: null
-    deploy: {}
-
-  camera-worker-01:
-    runtime: null
-    deploy: {}
-
-  camera-worker-02:
-    runtime: null
-    deploy: {}
-
-  camera-worker-03:
-    runtime: null
-    deploy: {}
+# CPU-only note: base docker-compose.yml runs on CPU by default (ONNX CPUExecutionProvider).
+# Use docker-compose.gpu.yml on GPU VMs with NVIDIA Container Toolkit installed.
+# Usage (CPU VM): docker compose up -d --build
+# Usage (GPU VM): docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+services: {}

@@ -13,6 +13,7 @@ from backend.core.person_detector import PersonDetector
 def mock_session():
     session = MagicMock()
     session.get_inputs.return_value = [MagicMock(name="images", shape=[1, 3, 640, 640])]
+    session.get_outputs.return_value = [MagicMock(name="output0")]
     # Output: batch of 1 det with box+score+minimal keypoints
     det = np.zeros((1, 5 + 49 * 3), dtype=np.float32)
     det[0, :4] = [100, 100, 200, 300]
