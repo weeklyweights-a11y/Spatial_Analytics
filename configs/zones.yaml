@@ -1,9 +1,33 @@
-# Zone polygon definitions — populated during venue setup (Phase 2)
-zones: []
-# Example:
-# - name: Coding Zone A
-#   zone_type: coding
-#   camera_id: CAM-01
-#   polygon_coords: [[100,100],[400,100],[400,400],[100,400]]
-#   floor: 0
-#   capacity: 50
+zones:
+  - name: "Test Coding Zone"
+    type: "coding"
+    camera_id: "CAM-01"
+    floor: 0
+    capacity: 50
+    polygon:
+      - [50, 50]
+      - [600, 50]
+      - [600, 350]
+      - [50, 350]
+
+  - name: "Test Mentor Zone"
+    type: "mentoring"
+    camera_id: "CAM-01"
+    floor: 0
+    capacity: 10
+    polygon:
+      - [620, 50]
+      - [1200, 50]
+      - [1200, 350]
+      - [620, 350]
+
+  - name: "Test Rest Zone"
+    type: "rest"
+    camera_id: "CAM-01"
+    floor: 0
+    capacity: 20
+    polygon:
+      - [50, 370]
+      - [1200, 370]
+      - [1200, 680]
+      - [50, 680]
