@@ -5,7 +5,7 @@
 | Phase | Title | Status | Estimated Hours | Dependencies |
 |-------|-------|--------|----------------|-------------|
 | 1 | Infrastructure + Registration | Complete | 4-5 hours | None |
-| 2 | Camera Pipeline + Identity | Not Started | 5-6 hours | Phase 1 |
+| 2 | Camera Pipeline + Identity | In Progress | 5-6 hours | Phase 1 |
 | 3 | Scoring Engine + CCTV Wall | Not Started | 5-6 hours | Phase 2 |
 | 4 | Heatmap + Analytics + Alerts | Not Started | 4-5 hours | Phase 3 |
 | 5 | Sponsors + Judging + Export | Not Started | 3-4 hours | Phase 3 |
@@ -51,7 +51,8 @@ Status legend: Not Started | In Progress | Complete | Blocked
 - Activity classification: zone type + hand keypoint heuristic
 - Events written to Redis Stream with participant_id, zone, activity, timestamp
 - Zone occupancy updated in Redis
-- Annotated frames (bounding boxes + names) available as MJPEG for the dashboard
+- Annotated frames stored in Redis (`camera_frame:*`, 5s TTL) for Phase 3 MJPEG serving
+- `scripts/simulate_streams.py` for RTMP test streams (10 FPS)
 
 **What this phase does NOT build:**
 - No scoring calculation (Phase 3)
@@ -137,7 +138,7 @@ Status legend: Not Started | In Progress | Complete | Blocked
 **Goal:** System is production-ready for Buildathon Dallas. Tested at scale, recovery verified, venue prep complete.
 
 **Key outputs:**
-- scripts/simulate_streams.py: generates fake RTMP streams with known faces for testing
+- scripts/simulate_streams.py reused from Phase 2 for load testing (13 streams)
 - Load test: 13 simulated camera streams, 1,000 fake participants, running for 2+ hours
 - Verify: no memory leaks, no VRAM growth, no PostgreSQL bloat
 - Crash recovery test: kill and restart each service, verify state recovery

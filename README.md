@@ -62,6 +62,8 @@ docker compose exec api python -m backend.cli create-user --username admin --pas
 ## Docs
 
 - [docs/PHASE_1_SPEC.md](docs/PHASE_1_SPEC.md)
+- [docs/PHASE_2_SPEC.md](docs/PHASE_2_SPEC.md)
+- [docs/PHASE_2_E2E_CHECKLIST.md](docs/PHASE_2_E2E_CHECKLIST.md)
 - [docs/REFERENCE_REPOS.md](docs/REFERENCE_REPOS.md)
 - [models/README.md](models/README.md)
 - [docs/BROWSER_E2E_CHECKLIST.md](docs/BROWSER_E2E_CHECKLIST.md)
@@ -75,6 +77,26 @@ pytest backend/tests/
 cd dashboard && npm install && npm test
 ```
 
+## Phase 2 testing (camera pipeline)
+
+```bash
+# CPU-only VM (no GPU quota):
+docker compose -f docker-compose.yml -f docker-compose.cpu.yml up -d --build
+
+# GPU production:
+docker compose up -d --build
+
+# Push test RTMP (host mediamtx when on VM):
+python scripts/simulate_streams.py --video test_data/test.mp4 --camera-id cam01 --host mediamtx
+
+# Inspect Redis events:
+redis-cli XREAD COUNT 5 STREAMS activity_stream 0
+redis-cli HGETALL zone_occupancy
+redis-cli HGETALL camera_status:CAM-01
+```
+
+Set `WORKER_DATABASE_URL=postgresql://spatialscore:PASSWORD@postgres:5432/spatialscore` for camera worker name lookup.
+
 ## Phase 1 scope
 
-Docker Compose (MediaMTX, PostgreSQL, Redis, API, dashboard), JWT auth, SCRFD/ArcFace/FAISS registration, React registration UI. Camera workers and scoring are placeholders.
+Docker Compose (MediaMTX, PostgreSQL, Redis, API, dashboard), JWT auth, SCRFD/ArcFace/FAISS registration, React registration UI. Phase 2 adds camera workers, DEIMv2 pipeline, and Redis activity events.
