@@ -8,10 +8,10 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.api.schemas import HealthCheckDetail, HealthResponse
+from backend.api.schemas import CameraHealthStatus, HealthCheckDetail, HealthResponse
 from backend.config import get_settings
 from backend.db.database import get_db, engine
-from backend.db.redis_client import get_redis
+from backend.db.redis_client import get_camera_statuses, get_redis
 from backend.middleware.rate_limit import limiter
 
 settings = get_settings()
@@ -67,9 +67,43 @@ async def health_check(
         checks["disk"] = HealthCheckDetail(status="error", detail=str(exc))
         all_ok = False
 
+    camera_statuses: list[CameraHealthStatus] = []
+    try:
+        statuses = await get_camera_statuses()
+        now = time.time()
+        for cam_id, fields in statuses.items():
+            last_hb = fields.get("last_heartbeat", "")
+            stale = False
+            if last_hb:
+                try:
+                    from datetime import datetime, timezone
+
+                    hb_dt = datetime.fromisoformat(last_hb.replace("Z", "+00:00"))
+                    age = (datetime.now(timezone.utc) - hb_dt).total_seconds()
+                    stale = age > 30
+                except ValueError:
+                    stale = True
+            cam_status = fields.get("status", "unknown")
+            if stale and cam_status == "active":
+                cam_status = "stale"
+            camera_statuses.append(
+                CameraHealthStatus(
+                    camera_id=cam_id,
+                    status=cam_status,
+                    fps=float(fields["fps"]) if fields.get("fps") else None,
+                    persons_tracked=int(fields["persons_tracked"]) if fields.get("persons_tracked") else None,
+                    stale=stale,
+                )
+            )
+            if stale:
+                all_ok = False
+        checks["cameras"] = HealthCheckDetail(status="ok" if not any(c.stale for c in camera_statuses) else "degraded")
+    except Exception as exc:
+        checks["cameras"] = HealthCheckDetail(status="error", detail=str(exc))
+
     status_str = "healthy" if all_ok else "degraded"
     if any(c.status == "error" for c in checks.values()):
         status_str = "unhealthy"
 
     uptime = time.time() - request.app.state.start_time
-    return HealthResponse(status=status_str, checks=checks, uptime_seconds=uptime)
+    return HealthResponse(status=status_str, checks=checks, uptime_seconds=uptime, cameras=camera_statuses)

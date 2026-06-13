@@ -84,6 +84,7 @@ class HealthResponse(BaseModel):
     status: str
     checks: dict[str, HealthCheckDetail]
     uptime_seconds: float
+    cameras: list["CameraHealthStatus"] = Field(default_factory=list)
 
 
 class MetricsResponse(BaseModel):
@@ -94,6 +95,19 @@ class MetricsResponse(BaseModel):
     redis_memory_used_mb: float
     postgres_connection_pool: dict[str, Any]
     uptime_seconds: float
+    events_in_stream: int = 0
+    total_persons_tracked: int = 0
+    cameras: dict[str, dict[str, Any]] = Field(default_factory=dict)
+
+
+class CameraHealthStatus(BaseModel):
+    """Per-camera worker health."""
+
+    camera_id: str
+    status: str
+    fps: Optional[float] = None
+    persons_tracked: Optional[int] = None
+    stale: bool = False
 
 
 VALID_TRACKS = frozenset({"ai_ml", "web3", "devtools", "fintech", "health", "open"})

@@ -94,3 +94,19 @@ async def read_activity_events(last_id: str = "0", count: int = 100) -> list[dic
         for msg_id, fields in messages:
             events.append({"id": msg_id, **fields})
     return events
+
+
+async def get_stream_length() -> int:
+    """XLEN activity_stream."""
+    r = await init_redis()
+    return int(await r.xlen(ACTIVITY_STREAM))
+
+
+async def get_camera_statuses() -> dict[str, dict[str, str]]:
+    """HGETALL for each camera_status:* key."""
+    r = await init_redis()
+    statuses: dict[str, dict[str, str]] = {}
+    async for key in r.scan_iter(match="camera_status:*"):
+        cam_id = key.split(":", 1)[-1]
+        statuses[cam_id] = await r.hgetall(key)
+    return statuses
