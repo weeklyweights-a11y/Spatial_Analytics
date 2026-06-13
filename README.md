@@ -93,6 +93,14 @@ python scripts/simulate_streams.py --video test_data/test.mp4 --camera-id cam01 
 redis-cli XREAD COUNT 5 STREAMS activity_stream 0
 redis-cli HGETALL zone_occupancy
 redis-cli HGETALL camera_status:CAM-01
+
+# Automated E2E verification (on VM):
+python scripts/verify_phase2_e2e.py --check-only
+python scripts/verify_phase2_e2e.py --full --start-stream --video test_data/test.mp4
+
+# Integration test suite (requires models, test video, ffmpeg, Redis, MediaMTX):
+export RUN_INTEGRATION_TESTS=1 DEIMv2_INTEGRATION=1
+pytest backend/tests/integration/test_camera_pipeline.py backend/tests/integration/test_identity_pipeline.py -v -m integration
 ```
 
 Set `WORKER_DATABASE_URL=postgresql://spatialscore:PASSWORD@postgres:5432/spatialscore` for camera worker name lookup.

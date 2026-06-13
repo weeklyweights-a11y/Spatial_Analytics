@@ -62,6 +62,75 @@ def get_stream_length() -> int:
     return int(r.xlen(ACTIVITY_STREAM))
 
 
+def read_activity_events(last_id: str = "0", count: int = 100) -> list[dict[str, Any]]:
+    """XREAD from activity_stream; parse JSON-encoded list/dict fields."""
+    r = get_sync_redis()
+    result = r.xread({ACTIVITY_STREAM: last_id}, count=count, block=0)
+    events: list[dict[str, Any]] = []
+    for _stream, messages in result:
+        for msg_id, fields in messages:
+            parsed: dict[str, Any] = {"id": msg_id}
+            for key, value in fields.items():
+                parsed[key] = _parse_redis_field(value)
+            events.append(parsed)
+    return events
+
+
+def _parse_redis_field(value: str) -> Any:
+    """Decode stream field values written by push_activity_event."""
+    try:
+        return json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        return value
+
+
+def get_camera_status(camera_id: str) -> dict[str, str]:
+    """HGETALL camera_status:{camera_id}."""
+    r = get_sync_redis()
+    return r.hgetall(f"camera_status:{camera_id}")
+
+
+def get_camera_frame(camera_id: str) -> Optional[bytes]:
+    """GET camera_frame:{camera_id} JPEG bytes."""
+    r = get_sync_redis_binary()
+    data = r.get(f"camera_frame:{camera_id}")
+    return data if data else None
+
+
+def get_camera_frame_ttl(camera_id: str) -> int:
+    """TTL seconds for camera_frame:{camera_id}."""
+    r = get_sync_redis_binary()
+    return int(r.ttl(f"camera_frame:{camera_id}"))
+
+
+def get_zone_occupancy() -> dict[str, str]:
+    """HGETALL zone_occupancy."""
+    r = get_sync_redis()
+    return r.hgetall("zone_occupancy")
+
+
+EVENT_FIELD_NAMES = frozenset(
+    {
+        "participant_id",
+        "camera_id",
+        "zone",
+        "zone_type",
+        "activity",
+        "track_id",
+        "bbox",
+        "confidence",
+        "timestamp",
+    }
+)
+
+
+def validate_activity_event(event: dict[str, Any]) -> None:
+    """Raise AssertionError if required activity event fields are missing."""
+    missing = EVENT_FIELD_NAMES - set(event.keys())
+    if missing:
+        raise AssertionError(f"Activity event missing fields: {sorted(missing)}")
+
+
 def close_sync_redis() -> None:
     global _redis_text, _redis_bin
     if _redis_text is not None:

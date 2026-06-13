@@ -17,6 +17,30 @@ docker compose up -d --build
 # docker compose -f docker-compose.yml -f docker-compose.cpu.yml up -d --build
 ```
 
+## Automated verification
+
+```bash
+# Prerequisites only
+python scripts/verify_phase2_e2e.py --check-only
+
+# Full Redis/runtime checks (docker workers must be running)
+python scripts/verify_phase2_e2e.py --full --start-stream --video test_data/test.mp4
+```
+
+## Integration tests (on VM)
+
+```bash
+export RUN_INTEGRATION_TESTS=1
+export DEIMv2_INTEGRATION=1
+export JWT_SECRET=your-jwt-secret-min-32-chars
+export REDIS_URL=redis://localhost:6379/0
+export DB_PASSWORD=your-db-password
+export WORKER_DATABASE_URL=postgresql://spatialscore:$DB_PASSWORD@localhost:5432/spatialscore
+
+pytest backend/tests/integration/test_camera_pipeline.py -v -m integration
+pytest backend/tests/integration/test_identity_pipeline.py -v -m integration
+```
+
 ## Stream simulation
 
 ```bash
