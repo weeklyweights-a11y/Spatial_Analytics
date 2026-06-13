@@ -1,0 +1,7 @@
+# Camera definitions — populated during venue setup (Phase 2)
+cameras: []
+# Example:
+# - id: CAM-01
+#   name: Ground Floor Main
+#   rtsp_url: rtsp://mediamtx:8554/cam01
+#   floor: 0

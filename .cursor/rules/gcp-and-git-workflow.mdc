@@ -1,0 +1,31 @@
+---
+description: GCP project context and per-step git commit workflow for all phases
+alwaysApply: true
+---
+
+# GCP + Git Workflow
+
+## GCP project (always use this)
+
+- **Project ID:** `buildathon-499300`
+- **Project number:** `635695586626`
+- **Account:** `bhargavin189@gmail.com`
+
+```bash
+gcloud config set account bhargavin189@gmail.com
+gcloud config set project buildathon-499300
+```
+
+Provision VM, models, and Docker stack in this project only. Phase 1 resources: `./scripts/setup_gcp.sh` on the GPU VM.
+
+## Git: one commit per phase plan step
+
+When implementing any phase from `docs/PHASE_*_SPEC.md` or the Cursor plan:
+
+1. Complete one plan step (e.g. "Step 5 — Face pipeline").
+2. Verify (tests/build/smoke as appropriate).
+3. `git add` only files for that step.
+4. Commit: `type(scope): Phase N step M — short description`
+5. Start the next step.
+
+Never commit `.env`, `*.onnx`, `data/faces/`, or secrets. Push only when the user asks.

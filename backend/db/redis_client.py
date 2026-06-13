@@ -1,0 +1,96 @@
+"""Async Redis client wrappers."""
+
+import json
+from typing import Any, Optional
+
+import redis.asyncio as aioredis
+from fastapi import Request
+
+from backend.config import get_settings
+
+settings = get_settings()
+_redis_pool: Optional[aioredis.Redis] = None
+
+ACTIVITY_STREAM = "activity_stream"
+ACTIVITY_STREAM_MAXLEN = 50000
+
+
+async def init_redis() -> aioredis.Redis:
+    """Create shared Redis connection pool."""
+    global _redis_pool
+    if _redis_pool is None:
+        _redis_pool = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+    return _redis_pool
+
+
+async def close_redis() -> None:
+    """Close Redis pool on shutdown."""
+    global _redis_pool
+    if _redis_pool is not None:
+        await _redis_pool.close()
+        _redis_pool = None
+
+
+async def get_redis() -> aioredis.Redis:
+    """FastAPI dependency for Redis client."""
+    return await init_redis()
+
+
+async def update_leaderboard(participant_id: str, score: float) -> None:
+    """ZADD leaderboard sorted set."""
+    r = await init_redis()
+    await r.zadd("leaderboard", {participant_id: score})
+
+
+async def get_leaderboard(limit: int = 50) -> list[tuple[str, float]]:
+    """ZREVRANGE with scores."""
+    r = await init_redis()
+    results = await r.zrevrange("leaderboard", 0, limit - 1, withscores=True)
+    return [(member, float(score)) for member, score in results]
+
+
+async def update_participant_state(
+    participant_id: str, zone: str, activity: str, score: float
+) -> None:
+    """HSET participant state hash."""
+    r = await init_redis()
+    await r.hset(
+        f"participant:{participant_id}",
+        mapping={"zone": zone, "activity": activity, "score": str(score)},
+    )
+
+
+async def get_participant_state(participant_id: str) -> dict[str, str]:
+    """HGETALL participant state."""
+    r = await init_redis()
+    return await r.hgetall(f"participant:{participant_id}")
+
+
+async def update_zone_occupancy(zone_name: str, count: int) -> None:
+    """HSET zone occupancy count."""
+    r = await init_redis()
+    await r.hset("zone_occupancy", zone_name, count)
+
+
+async def get_zone_occupancy() -> dict[str, str]:
+    """HGETALL zone occupancy."""
+    r = await init_redis()
+    return await r.hgetall("zone_occupancy")
+
+
+async def push_activity_event(event: dict[str, Any]) -> str:
+    """XADD to activity_stream with MAXLEN trim."""
+    r = await init_redis()
+    flat = {k: json.dumps(v) if isinstance(v, (dict, list)) else str(v) for k, v in event.items()}
+    return await r.xadd(ACTIVITY_STREAM, flat, maxlen=ACTIVITY_STREAM_MAXLEN, approximate=True)
+
+
+async def read_activity_events(last_id: str = "0", count: int = 100) -> list[dict[str, Any]]:
+    """XREAD from activity_stream."""
+    r = await init_redis()
+    result = await r.xread({ACTIVITY_STREAM: last_id}, count=count, block=None)
+    events: list[dict[str, Any]] = []
+    for _stream, messages in result:
+        for msg_id, fields in messages:
+            events.append({"id": msg_id, **fields})
+    return events

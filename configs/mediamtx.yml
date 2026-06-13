@@ -1,0 +1,9 @@
+# MediaMTX — accept RTMP push, re-publish as RTSP (latest schema)
+rtmp: yes
+rtmpAddress: :1935
+rtsp: yes
+rtspAddress: :8554
+
+pathDefaults:
+  source: publisher
+  overridePublisher: yes

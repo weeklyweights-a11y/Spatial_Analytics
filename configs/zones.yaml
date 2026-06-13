@@ -1,0 +1,9 @@
+# Zone polygon definitions — populated during venue setup (Phase 2)
+zones: []
+# Example:
+# - name: Coding Zone A
+#   zone_type: coding
+#   camera_id: CAM-01
+#   polygon_coords: [[100,100],[400,100],[400,400],[100,400]]
+#   floor: 0
+#   capacity: 50

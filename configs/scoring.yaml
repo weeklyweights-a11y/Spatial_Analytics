@@ -1,0 +1,12 @@
+# Scoring weights — mirrors scoring_config DB seed (fallback for Phase 2+)
+activities:
+  coding: { weight: 1.0, min_dwell_seconds: 120 }
+  collaborating: { weight: 1.5, min_dwell_seconds: 120 }
+  mentoring: { weight: 2.0, min_dwell_seconds: 300 }
+  presenting: { weight: 2.0, min_dwell_seconds: 60 }
+  networking: { weight: 1.2, min_dwell_seconds: 120 }
+  helping_others: { weight: 1.8, min_dwell_seconds: 600 }
+  sponsor_engagement: { weight: 1.0, min_dwell_seconds: 120 }
+  eating: { weight: 0, min_dwell_seconds: 0 }
+  resting: { weight: 0, min_dwell_seconds: 0 }
+  idle: { weight: 0, min_dwell_seconds: 0 }

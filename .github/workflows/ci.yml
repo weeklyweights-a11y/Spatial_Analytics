@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install ruff
+      - run: ruff check backend/
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: cd dashboard && npm install && npm run lint || true
+
+  test-backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: spatialscore_test
+          POSTGRES_USER: spatialscore
+          POSTGRES_PASSWORD: testpass
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      JWT_SECRET: test-jwt-secret-key-minimum-32-characters-long
+      DATABASE_URL: postgresql+asyncpg://spatialscore:testpass@localhost:5432/spatialscore_test
+      REDIS_URL: redis://localhost:6379/1
+      FAISS_INDEX_PATH: /tmp/faiss_test/faiss_index.bin
+      EMBEDDING_MAP_PATH: /tmp/faiss_test/embedding_map.json
+      MODELS_DIR: /tmp/models_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r backend/requirements.txt
+      - run: PYTHONPATH=. pytest -c pytest.ini backend/tests/ --cov=backend -v --tb=short
+
+  test-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: cd dashboard && npm install && npm test
+
+  build-docker:
+    needs: [lint, test-backend, test-frontend]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose build
+      - run: |
+          echo "DB_PASSWORD=testpass123456789012345678901234" > .env
+          echo "JWT_SECRET=test-jwt-secret-key-minimum-32-characters-long" >> .env
+          docker compose up -d postgres redis
+          sleep 10
+          docker compose ps
+          docker compose up -d api dashboard
+          sleep 20
+          curl -sf http://localhost:8000/api/v1/health || true
+          docker compose down

@@ -1,0 +1,127 @@
+services:
+  mediamtx:
+    image: bluenviron/mediamtx:latest
+    restart: always
+    ports:
+      - "1935:1935"
+      - "8554:8554"
+    volumes:
+      - ./configs/mediamtx.yml:/mediamtx.yml:ro
+
+  postgres:
+    image: postgres:16-alpine
+    restart: always
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: spatialscore
+      POSTGRES_USER: spatialscore
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U spatialscore -d spatialscore"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: always
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --maxmemory 2gb --maxmemory-policy allkeys-lru
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: always
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://spatialscore:${DB_PASSWORD}@postgres:5432/spatialscore
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET: ${JWT_SECRET}
+      GCS_BUCKET: ${GCS_BUCKET:-spatialscore-data}
+      FAISS_INDEX_PATH: ${FAISS_INDEX_PATH:-/app/data/faiss/faiss_index.bin}
+      EMBEDDING_MAP_PATH: ${EMBEDDING_MAP_PATH:-/app/data/faiss/embedding_map.json}
+      MODELS_DIR: ${MODELS_DIR:-/app/models}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      JWT_EXPIRY_HOURS: ${JWT_EXPIRY_HOURS:-24}
+      FACE_SIMILARITY_THRESHOLD: ${FACE_SIMILARITY_THRESHOLD:-0.5}
+      DUPLICATE_REGISTRATION_THRESHOLD: ${DUPLICATE_REGISTRATION_THRESHOLD:-0.6}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      SCORING_FLUSH_INTERVAL: ${SCORING_FLUSH_INTERVAL:-60}
+      HEATMAP_SNAPSHOT_INTERVAL: ${HEATMAP_SNAPSHOT_INTERVAL:-300}
+      MAX_REGISTRATION_STATIONS: ${MAX_REGISTRATION_STATIONS:-10}
+    volumes:
+      - ./models:/app/models:ro
+      - ./data:/app/data:rw
+      - ./configs:/app/configs:ro
+      - ./logs:/app/logs:rw
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+          memory: 4G
+    runtime: nvidia
+
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+    restart: always
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+
+  camera-worker-placeholder:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: always
+    command: python -c "import time; time.sleep(999999)"
+    volumes:
+      - ./models:/app/models:ro
+      - ./configs:/app/configs:ro
+    runtime: nvidia
+
+  scoring-engine-placeholder:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: always
+    command: python -c "import time; time.sleep(999999)"
+    volumes:
+      - ./models:/app/models:ro
+      - ./configs:/app/configs:ro
+
+  heatmap-worker-placeholder:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: always
+    command: python -c "import time; time.sleep(999999)"
+    volumes:
+      - ./models:/app/models:ro
+      - ./configs:/app/configs:ro
+
+volumes:
+  pgdata:
+  redisdata:

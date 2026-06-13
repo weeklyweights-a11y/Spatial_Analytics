@@ -1,0 +1,324 @@
+# SpatialScore — Cursor Rules
+
+Read this file before every phase. It is the law.
+
+## What This Project Is
+
+SpatialScore is a real-time hackathon intelligence platform. CCTV cameras at a venue feed video to a Google Cloud GPU VM. The VM identifies every participant by face, tracks them across cameras, classifies their activity based on what zone they're in and their body pose (49 keypoints), and scores them in real time. Organizers see a CCTV monitoring wall — a grid of live camera feeds where every person is labeled with a bounding box and their name. Click on any person in the video and their score card pops up. Participants never see the system.
+
+1,000 participants. 3 floors. 10-13 cameras. 24-hour hackathon. Single GCP GPU VM. No on-premise hardware beyond cameras and a relay laptop.
+
+## GCP Project (Buildathon)
+
+All cloud provisioning, VM setup, model downloads, and deployment run in this project. Do not create resources in other GCP projects unless the user explicitly says otherwise.
+
+| Field | Value |
+|-------|-------|
+| **Project ID** | `buildathon-499300` |
+| **Project number** | `635695586626` |
+| **Owner account** | `bhargavin189@gmail.com` |
+
+Before any `gcloud`, `gsutil`, or GCP Console work:
+
+```bash
+gcloud config set account bhargavin189@gmail.com
+gcloud config set project buildathon-499300
+```
+
+Recommended VM for SpatialScore: **GCE g2-standard-8** with **NVIDIA L4**, Ubuntu 24.04, in a region with L4 quota (e.g. `us-central1`). Use `./scripts/setup_gcp.sh` on the VM after SSH access.
+
+**Phase 1 resource acquisition** (models, Docker images, reference-repo study clones) is executed on the GCP GPU VM via `scripts/setup_gcp.sh` and `scripts/download_models.sh` — not on the venue laptop.
+
+**No third-party API keys required for Phase 1.** HuggingFace InsightFace weights are public. `JWT_SECRET` and `DB_PASSWORD` are generated locally. `GCS_BUCKET` is config-only until Phase 6 backups.
+
+
+**Person Detection + Pose:** DEIMv2-wholebody49 (ONNX). 49 keypoints per person (17 body + 6 feet + 26 hands). Runs via ONNX Runtime with CUDA. NOT Ultralytics, NOT YOLO. Do not install ultralytics.
+
+**Face Detection:** SCRFD-10G via ONNX Runtime. From InsightFace buffalo_l model pack.
+
+**Face Recognition:** ArcFace-R100 via ONNX Runtime. 512-dim embeddings. From InsightFace buffalo_l model pack.
+
+**Face Matching:** FAISS IndexFlatIP. Cosine similarity on L2-normalized embeddings. Threshold: 0.5.
+
+**CV Toolkit:** Roboflow supervision. Use sv.ByteTrack for tracking, sv.PolygonZone for zone counting, sv.LineZone for entry/exit, sv.HeatMapAnnotator for heatmaps, sv.get_video_frames_generator for RTSP ingestion. Construct sv.Detections manually from DEIMv2 output — do NOT use sv.Detections.from_ultralytics.
+
+**Video Relay:** MediaMTX (bluenviron/mediamtx Docker image). Receives RTMP from venue, re-exposes as local RTSP.
+
+**Backend:** FastAPI. Async everywhere. Uvicorn with 4 workers.
+
+**Database:** PostgreSQL 16 in Docker on the VM. SQLAlchemy 2.0 async with asyncpg driver. Alembic for migrations.
+
+**Cache + Message Queue:** Redis 7 in Docker on the VM. Redis Streams for camera-worker-to-scoring-engine communication. Sorted sets for leaderboard. Hashes for participant state and zone occupancy. No Kafka. No Pub/Sub. No external message broker.
+
+**Frontend:** React 18 + TypeScript + Vite. Tailwind CSS for styling. Recharts for charts. D3.js for heatmap overlay. Zustand for global state. WebSocket (native + reconnecting-websocket) for live updates.
+
+**Auth:** JWT with python-jose. bcrypt via passlib. 24-hour token lifetime.
+
+**Infrastructure:** Single GCE g2-standard-8 VM (NVIDIA L4, 24GB VRAM, 8 vCPU, 32GB RAM). Docker Compose orchestrates everything. Cloud Storage for backups only.
+
+**Inference Runtime:** ONNX Runtime is the ONLY inference runtime. All three models (SCRFD, ArcFace, DEIMv2) run through onnxruntime with CUDAExecutionProvider. No PyTorch at inference time. No TensorFlow. No separate model servers.
+
+## Architecture — The Data Flow
+
+```
+Venue cameras (RTSP) → Laptop ffmpeg (RTMP) → MediaMTX on VM (local RTSP)
+    → Camera Workers (1 per stream, GPU access)
+        → DEIMv2 (person detection + 49 keypoints)
+        → SCRFD + ArcFace + FAISS (face identity, every 2 seconds)
+        → supervision ByteTrack (tracking)
+        → supervision PolygonZone (zone classification)
+        → Activity classification (zone + hand position heuristic)
+        → Redis Stream: activity events
+    → Scoring Engine (consumes Redis Stream)
+        → Weighted score calculation
+        → Behavioral tag assignment
+        → PostgreSQL (permanent storage)
+        → Redis (leaderboard, participant state)
+        → WebSocket push to dashboard
+    → API Server (FastAPI)
+        → REST endpoints + WebSocket channels
+        → Annotated MJPEG streams for CCTV wall
+    → Dashboard (React)
+        → CCTV wall: camera grid with labeled bounding boxes
+        → Click-to-inspect: score card popup
+        → Heatmap, leaderboard, energy graph, alerts
+```
+
+## Project Structure
+
+```
+spatialscore/
+├── .cursorrules
+├── PROJECT.md
+├── TASKS.md
+├── docker-compose.yml
+├── README.md
+├── backend/
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   ├── main.py
+│   ├── config.py
+│   ├── api/
+│   │   ├── __init__.py
+│   │   ├── auth.py
+│   │   ├── registration.py
+│   │   ├── scores.py
+│   │   ├── tracking.py
+│   │   ├── zones.py
+│   │   ├── analytics.py
+│   │   ├── sponsors.py
+│   │   ├── cameras.py
+│   │   ├── export.py
+│   │   └── websocket.py
+│   ├── core/
+│   │   ├── __init__.py
+│   │   ├── face_detector.py
+│   │   ├── face_recognizer.py
+│   │   ├── face_matcher.py
+│   │   ├── person_detector.py
+│   │   ├── person_tracker.py
+│   │   ├── zone_classifier.py
+│   │   ├── activity_classifier.py
+│   │   └── scoring_engine.py
+│   ├── workers/
+│   │   ├── __init__.py
+│   │   ├── camera_worker.py
+│   │   ├── scoring_worker.py
+│   │   └── heatmap_worker.py
+│   ├── db/
+│   │   ├── __init__.py
+│   │   ├── database.py
+│   │   ├── redis_client.py
+│   │   ├── models.py
+│   │   └── migrations/
+│   └── utils/
+│       ├── __init__.py
+│       ├── geometry.py
+│       └── stream.py
+├── dashboard/
+│   ├── Dockerfile
+│   ├── package.json
+│   ├── vite.config.ts
+│   ├── tailwind.config.js
+│   └── src/
+│       ├── App.tsx
+│       ├── main.tsx
+│       ├── pages/
+│       │   ├── Login.tsx
+│       │   ├── CCTVWall.tsx
+│       │   ├── Leaderboard.tsx
+│       │   ├── ParticipantProfile.tsx
+│       │   ├── Heatmap.tsx
+│       │   ├── Analytics.tsx
+│       │   ├── SponsorReports.tsx
+│       │   ├── Registration.tsx
+│       │   └── Settings.tsx
+│       ├── components/
+│       │   ├── CameraFeed.tsx
+│       │   ├── ScoreCard.tsx
+│       │   ├── RadarChart.tsx
+│       │   ├── ActivityTimeline.tsx
+│       │   ├── ZoneUtilization.tsx
+│       │   ├── LiveLeaderboard.tsx
+│       │   ├── EnergyGraph.tsx
+│       │   ├── HeatmapOverlay.tsx
+│       │   └── AlertsFeed.tsx
+│       ├── hooks/
+│       │   ├── useWebSocket.ts
+│       │   ├── useScores.ts
+│       │   └── useAuth.ts
+│       ├── stores/
+│       │   └── appStore.ts
+│       ├── types/
+│       │   └── index.ts
+│       └── utils/
+│           └── api.ts
+├── models/
+│   ├── README.md
+│   ├── scrfd_10g.onnx
+│   ├── arcface_r100.onnx
+│   └── deimv2_s_wholebody49.onnx
+├── configs/
+│   ├── cameras.yaml
+│   ├── zones.yaml
+│   └── scoring.yaml
+├── data/
+│   ├── faces/
+│   ├── faiss/
+│   ├── venue/
+│   ├── exports/
+│   └── backups/
+├── scripts/
+│   ├── download_models.sh
+│   ├── setup_venue.py
+│   ├── simulate_streams.py
+│   ├── benchmark.py
+│   └── anonymize.py
+├── tests/
+│   ├── unit/
+│   ├── integration/
+│   └── e2e/
+├── docs/
+│   ├── PHASE_1_SPEC.md
+│   ├── PHASE_2_SPEC.md
+│   └── ...
+└── deploy/
+    ├── Dockerfile.worker
+    └── docker-compose.prod.yml
+```
+
+## Code Style
+
+**Python:**
+- Python 3.11+
+- Type hints on all function signatures
+- Docstrings on every class and public function (one-liner is fine for simple ones)
+- f-strings, never .format() or %
+- async/await everywhere in API and database code
+- Pydantic v2 models for all request/response schemas
+- No print statements — use loguru logger
+- No global mutable state — pass dependencies via function arguments or FastAPI Depends()
+- Imports: stdlib → third-party → local, separated by blank lines
+
+**TypeScript/React:**
+- Functional components only, hooks for state
+- Named exports, no default exports (except pages)
+- Interface over type for object shapes
+- Explicit return types on functions
+- No any — use proper types or unknown
+- Tailwind only — no CSS files, no styled-components, no CSS modules
+
+**General:**
+- No emojis anywhere in this project: not in code, comments, commit messages, documentation, UI copy, or assistant responses
+- No commented-out code in commits
+- No TODO comments without a linked issue or phase reference
+- No placeholder/stub functions that do nothing — either implement or don't create
+- Error messages must be human-readable: "Face not detected in uploaded image" not "Error: detection failed"
+
+## Git Rules
+
+**Mandatory workflow:** After completing each plan step within a phase (e.g. Phase 1 Step 3 — database models), commit before starting the next step. One step = one commit when the step is working (tests pass or the step deliverable is verifiable). Do not batch an entire phase into a single commit.
+
+1. Finish the step (code, config, or docs for that step only).
+2. Run relevant checks (`pytest`, `npm test`, `docker compose build`, etc.) when applicable.
+3. `git add` only files for that step — never `.env`, `*.onnx`, `data/faces/`, or secrets.
+4. Commit with the format below. Push only when the user asks.
+
+- Commit after EVERY working feature and EVERY completed phase plan step. Small, frequent commits.
+- Format: `type(scope): short description`
+- Types: feat, fix, refactor, test, docs, chore, perf
+- Scopes: api, core, worker, dashboard, db, config, deploy
+- Phase/step commit examples:
+  - `feat(db): Phase 1 step 3 — SQLAlchemy models and initial Alembic migration`
+  - `feat(api): Phase 1 step 7 — registration endpoint with FAISS write lock`
+  - `chore(config): Phase 1 step 1 — docker-compose and infra configs`
+  - `docs(chore): Phase 1 step 11 — README and setup_gcp.sh`
+- Other examples:
+  - `feat(core): add DEIMv2 person detector with 49 keypoint output`
+  - `feat(dashboard): CCTV wall grid with camera feeds`
+  - `fix(worker): handle RTSP reconnection on stream timeout`
+- Work on main. No branch overhead unless the user requests a PR workflow.
+- Never commit: .env, __pycache__, node_modules, .DS_Store, *.onnx, *.pt, data/faces/
+
+## API Conventions
+
+- All endpoints prefixed with `/api/v1/`
+- Auth: JWT Bearer token in Authorization header on every endpoint
+- Response shapes:
+  - Success (single): `{"data": {...}}`
+  - Success (list): `{"data": [...], "pagination": {"page": 1, "per_page": 50, "total": 1000}}`
+  - Error: `{"error": "Human-readable message", "code": "ERROR_CODE"}`
+- Timestamps: ISO 8601 UTC
+- IDs: UUID v4
+- Pagination: `?page=1&per_page=50`
+- Sorting: `?sort_by=total_score&sort_order=desc`
+- Filtering: `?track=ai_ml&team=team_alpha&tag=mentor`
+
+## WebSocket Conventions
+
+- Auth via query param: `ws://host/ws/channel?token=xxx`
+- All messages are JSON with a `type` field
+- Channels: `/ws/leaderboard`, `/ws/heatmap`, `/ws/alerts`, `/ws/tracking/{cam_id}`, `/ws/participant/{id}`
+- Auto-reconnect on client side with exponential backoff
+
+## Database Conventions
+
+- PostgreSQL table names: snake_case, plural (participants, activity_logs, scores)
+- Column names: snake_case
+- Primary keys: UUID v4 (gen_random_uuid())
+- Timestamps: TIMESTAMP with time zone, default NOW()
+- activity_logs table: partitioned by hour (create partitions before event)
+- Indexes on: participant_id + timestamp, zone_id + timestamp, scores.total_score DESC
+- Use async sessions (asyncpg) for all runtime queries
+- Use sync sessions (psycopg2) only for migrations
+
+## Redis Conventions
+
+- Keys: `namespace:identifier` pattern
+- Leaderboard: `ZADD leaderboard <score> <participant_id>`
+- Participant state: `HSET participant:<id> zone activity score last_seen`
+- Zone occupancy: `HSET zone_occupancy <zone_name> <count>`
+- Activity stream: `XADD activity_stream * key value ...` with XTRIM MAXLEN 50000
+- Heatmap: `SET heatmap:current <serialized>`
+
+## Non-Negotiable Rules
+
+1. **No Ultralytics. No YOLO.** DEIMv2-wholebody49 via ONNX Runtime is the person detector. Do not install or import ultralytics.
+
+2. **supervision for all CV operations.** ByteTrack, PolygonZone, LineZone, annotators. Do not write custom tracking or zone detection code.
+
+3. **ONNX Runtime is the only inference runtime.** All models (SCRFD, ArcFace, DEIMv2) run through onnxruntime. No PyTorch, no TensorFlow at inference.
+
+4. **No Kafka. No Pub/Sub. No external message brokers.** Redis Streams on the same VM handles all inter-service communication.
+
+5. **No Cloud SQL. No Memorystore.** PostgreSQL and Redis run in Docker containers on the GPU VM. Everything is on one machine.
+
+6. **FAISS writes are serialized.** Multiple registration stations can register simultaneously, but FAISS index additions go through a threading.Lock. One embedding added at a time.
+
+7. **Raw video frames are NEVER stored.** Process in memory, annotate, emit metadata, discard. Privacy is non-negotiable.
+
+8. **Phase specs are the source of truth.** If the spec says build X, build X. If it says don't build Y, don't build Y.
+
+9. **docker compose up starts everything.** No manual steps beyond .env configuration and model downloads.
+
+10. **Organizer-only. No participant-facing UI.** The dashboard is auth-protected. Participants never see scores.
