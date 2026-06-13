@@ -16,6 +16,7 @@ data/faiss/*
 !data/faiss/.gitkeep
 logs/*
 !logs/.gitkeep
+spatialscore-deploy.tar
 .coverage
 htmlcov/
 *.log
