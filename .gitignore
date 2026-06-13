@@ -20,3 +20,4 @@ spatialscore-deploy.tar
 .coverage
 htmlcov/
 *.log
+test_data/

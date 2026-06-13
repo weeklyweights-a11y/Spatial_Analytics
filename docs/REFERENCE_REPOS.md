@@ -22,3 +22,25 @@ Study-only clones (via `scripts/setup_reference_repos.sh`). **Do not copy-paste*
 |----------|----------|------|
 | `backend/main.py` | `backend/main.py` | App factory, lifespan, routers, middleware |
 | `dashboard/src/` | `dashboard/src/` | pages/, components/, hooks/ layout pattern |
+
+## roboflow/supervision (Phase 2)
+
+| Upstream docs | Our file | Take |
+|---------------|----------|------|
+| ByteTrack + manual Detections | `backend/core/person_tracker.py` | `sv.ByteTrack`, `DetectionsSmoother`, no `from_ultralytics` |
+| PolygonZone tutorial | `backend/core/zone_classifier.py` | `PolygonZone.trigger`, centroid assignment |
+| Annotators | `backend/workers/camera_worker.py` | Box, Label, HeatMap, Trace annotators |
+| RTSP generator | `backend/utils/stream.py` | `get_video_frames_generator` + reconnect |
+
+## Intellindust-AI-Lab/DEIMv2 (Phase 2)
+
+| Upstream | Our file | Take |
+|----------|----------|------|
+| ONNX export / inference | `backend/core/person_detector.py` | Preprocess, NMS, 49-keypoint output parsing |
+| `scripts/export_deimv2.sh` | VM-only export workflow | |
+
+## dronefreak/human-action-classification (Phase 2)
+
+| Upstream concept | Our file | Take |
+|------------------|----------|------|
+| Keypoint angles / motion heuristics | `backend/core/activity_classifier.py` | Zone + wrist position rules for coding/collaborating/idle |

@@ -31,15 +31,27 @@ wget https://huggingface.co/public-data/insightface/resolve/main/models/buffalo_
 wget https://huggingface.co/public-data/insightface/resolve/main/models/buffalo_l/w600k_r50.onnx -O models/arcface_r100.onnx
 ```
 
-## DEIMv2 export
+## DEIMv2 export (Phase 2 — VM host only, not Docker)
 
 ```bash
-git clone https://github.com/Intellindust-AI-Lab/DEIMv2.git /tmp/deimv2
-cd /tmp/deimv2
-# Follow repo README; export to models/deimv2_s_wholebody49.onnx
+./scripts/export_deimv2.sh
+# Or manually:
+# DEIMV2_DIR=/tmp/deimv2 DEIMV2_CHECKPOINT=weights/deimv2_s_wholebody49.pth ./scripts/export_deimv2.sh
 ```
 
-If the exact wholebody49 config is unavailable, use the closest pose variant and document the actual keypoint count here.
+Verify after export:
+
+```bash
+python -c "
+import onnxruntime as ort
+sess = ort.InferenceSession('models/deimv2_s_wholebody49.onnx', providers=['CPUExecutionProvider'])
+print('Outputs:', [o.name for o in sess.get_outputs()])
+"
+```
+
+**Fallback (document in code, never Ultralytics in Docker):** If wholebody49 export fails, use DEIMv2 det-only + RTMPose ONNX. `PersonDetector` interface stays `(boxes, scores, keypoints)` with shape `(N,49,3)` or `(N,17,3)` fallback.
+
+**PyTorch inference is NOT allowed in Docker** — export scripts run on VM host venv only.
 
 ## License
 
