@@ -18,6 +18,7 @@ class ZoneConfig(BaseModel):
     floor: int = 0
     capacity: int = 50
     polygon: list[list[float]]
+    floor_polygon: Optional[list[list[float]]] = None
     sponsor_name: Optional[str] = None
 
     @property

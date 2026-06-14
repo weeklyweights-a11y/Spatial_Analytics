@@ -9,8 +9,8 @@ from pathlib import Path
 from typing import Annotated, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, select
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -29,9 +29,9 @@ from backend.config import get_settings
 from backend.core.scoring_engine import build_radar_data
 from backend.db.database import get_db
 from backend.db.models import ActivityLog, Participant, Score, Zone
-from backend.db.redis_client import get_participant_state, get_redis
+from backend.db.redis_client import get_participant_state, get_redis, get_heatmap_current, invalidate_leaderboard_cache, init_redis
+from backend.middleware.rate_limit import limiter
 
-router = APIRouter(prefix="/api/v1", tags=["scores"])
 settings = get_settings()
 
 LEADERBOARD_CACHE_TTL = 30
@@ -44,6 +44,17 @@ BREAKDOWN_COLUMNS = [
     ("helping", "helping_minutes"),
     ("idle", "idle_minutes"),
 ]
+
+
+def _sort_column(sort_by: str):
+    """Map API sort_by to Score column."""
+    if sort_by == "total_score":
+        return Score.total_score
+    col_name = f"{sort_by}_minutes" if not sort_by.endswith("_minutes") else sort_by
+    return getattr(Score, col_name, Score.total_score)
+
+
+router = APIRouter(prefix="/api/v1", tags=["scores"])
 
 
 def _photo_base64(participant: Participant) -> Optional[str]:
@@ -70,28 +81,41 @@ async def get_leaderboard(
     sort_by: str = Query("total_score"),
     sort_order: str = Query("desc"),
     tag: Optional[str] = Query(None),
+    track: Optional[str] = Query(None),
+    team: Optional[str] = Query(None),
+    floor: Optional[int] = Query(None),
 ) -> dict:
     """Paginated leaderboard with live Redis state."""
-    cache_key = f"leaderboard_cache:{sort_by}:{sort_order}:{page}:{per_page}:{tag or ''}"
+    cache_key = (
+        f"leaderboard_cache:{sort_by}:{sort_order}:{page}:{per_page}:"
+        f"{tag or ''}:{track or ''}:{team or ''}:{floor if floor is not None else ''}"
+    )
     redis = await get_redis()
     cached = await redis.get(cache_key)
     if cached:
         return json.loads(cached)
 
-    total_participants = await db.scalar(
-        select(func.count()).select_from(Participant).where(Participant.opted_out.is_(False))
-    )
-    sort_col = getattr(Score, sort_by, None) if sort_by != "total_score" else Score.total_score
-    if sort_col is None:
-        sort_col = Score.total_score
+    count_stmt = select(func.count()).select_from(Participant).where(Participant.opted_out.is_(False))
+    if track:
+        count_stmt = count_stmt.where(Participant.track == track)
+    if team:
+        count_stmt = count_stmt.where(Participant.team_name.ilike(f"%{team}%"))
+    total_participants = await db.scalar(count_stmt)
 
+    sort_col = _sort_column(sort_by)
     stmt = (
         select(Participant, Score)
         .join(Score, Score.participant_id == Participant.id, isouter=True)
         .where(Participant.opted_out.is_(False))
     )
+    if track:
+        stmt = stmt.where(Participant.track == track)
+    if team:
+        stmt = stmt.where(Participant.team_name.ilike(f"%{team}%"))
     if tag:
         stmt = stmt.where(Score.tags.any(tag.title()))
+    if floor is not None:
+        stmt = stmt.join(Zone, Zone.name == Score.last_zone).where(Zone.floor == floor)
     if sort_order == "asc":
         stmt = stmt.order_by(sort_col.asc().nulls_last())
     else:
@@ -107,6 +131,7 @@ async def get_leaderboard(
                 participant_id=participant.id,
                 name=participant.name,
                 team_name=participant.team_name,
+                track=participant.track,
                 total_score=float(score.total_score if score else 0),
                 rank=score.rank if score else None,
                 current_activity=state.get("activity") or (score.last_activity if score else None),
@@ -122,6 +147,61 @@ async def get_leaderboard(
     }
     await redis.setex(cache_key, LEADERBOARD_CACHE_TTL, json.dumps(response, default=str))
     return response
+
+
+@router.get("/scores/compare")
+@limiter.limit("30/minute")
+async def compare_scores(
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    user: CurrentUser = Depends(require_role(["admin", "operator", "viewer"])),
+    ids: str = Query(..., description="Comma-separated participant UUIDs"),
+) -> dict:
+    """Side-by-side score comparison for 2-5 participants."""
+    id_list = [UUID(x.strip()) for x in ids.split(",") if x.strip()]
+    if len(id_list) < 2 or len(id_list) > 5:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "Provide 2 to 5 participant IDs", "code": "INVALID_COMPARE"},
+        )
+    participants_out = []
+    for pid in id_list:
+        stmt = select(Participant).options(selectinload(Participant.score)).where(Participant.id == pid)
+        participant = (await db.execute(stmt)).scalar_one_or_none()
+        if participant is None:
+            raise HTTPException(status_code=404, detail={"error": "Participant not found", "code": "NOT_FOUND"})
+        score = participant.score
+        minutes_dict: dict[str, float] = {}
+        breakdown: dict[str, ActivityBreakdown] = {}
+        total_minutes = 0.0
+        if score:
+            for label, col in BREAKDOWN_COLUMNS:
+                mins = float(getattr(score, col, 0) or 0)
+                minutes_dict[label] = mins
+                total_minutes += mins
+            for label, col in BREAKDOWN_COLUMNS:
+                mins = float(getattr(score, col, 0) or 0)
+                pct = (mins / total_minutes * 100) if total_minutes > 0 else 0.0
+                breakdown[label] = ActivityBreakdown(
+                    minutes=mins,
+                    points=mins,
+                    percentage=pct,
+                )
+        radar = [RadarAxis(**r) for r in build_radar_data(minutes_dict)]
+        participants_out.append(
+            {
+                "id": str(participant.id),
+                "name": participant.name,
+                "team_name": participant.team_name,
+                "track": participant.track,
+                "total_score": float(score.total_score if score else 0),
+                "rank": score.rank if score else None,
+                "tags": list(score.tags or []) if score else [],
+                "radar_data": [r.model_dump() for r in radar],
+                "breakdown": {k: v.model_dump() for k, v in breakdown.items()},
+            }
+        )
+    return {"data": {"participants": participants_out}}
 
 
 @router.get("/scores/{participant_id}")

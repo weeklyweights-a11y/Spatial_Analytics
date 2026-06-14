@@ -11,7 +11,7 @@ import cv2
 import numpy as np
 import yaml
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -84,6 +84,20 @@ async def list_cameras(
         floor = cam.floor if cam.floor is not None else 0
         by_floor.setdefault(floor, []).append(cam.model_dump())
     return {"data": {"cameras": [c.model_dump() for c in cameras], "by_floor": by_floor}}
+
+
+@router.get("/cameras/{camera_id}/snapshot")
+@limiter.limit("30/minute")
+async def camera_snapshot(
+    request: Request,
+    camera_id: str,
+    user: CurrentUser = Depends(require_role(["admin"])),
+) -> Response:
+    """Single JPEG frame for zone editor."""
+    frame = get_camera_frame(camera_id)
+    if frame is None:
+        frame = _offline_jpeg_bytes()
+    return Response(content=frame, media_type="image/jpeg")
 
 
 async def _mjpeg_generator(camera_id: str) -> AsyncGenerator[bytes, None]:

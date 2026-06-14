@@ -98,6 +98,10 @@ class MetricsResponse(BaseModel):
     events_in_stream: int = 0
     total_persons_tracked: int = 0
     cameras: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    heatmap_snapshots_total: int = 0
+    alerts_fired_total: int = 0
+    alerts_unacknowledged: int = 0
+    energy_level_current: float = 0.0
 
 
 class CameraHealthStatus(BaseModel):
@@ -135,6 +139,7 @@ class ScoreLeaderboardEntry(BaseModel):
     participant_id: UUID
     name: str
     team_name: str
+    track: str = ""
     total_score: float
     rank: Optional[int] = None
     current_activity: Optional[str] = None

@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     FACE_SIMILARITY_THRESHOLD: float = 0.5
     DUPLICATE_REGISTRATION_THRESHOLD: float = 0.6
     SCORING_FLUSH_INTERVAL: int = 60
-    HEATMAP_SNAPSHOT_INTERVAL: int = 300
+    HEATMAP_SNAPSHOT_INTERVAL: int = 10
     MAX_REGISTRATION_STATIONS: int = 10
     CORS_ORIGINS: str = "http://localhost:3000,https://spatialscore.buildathon.co"
 

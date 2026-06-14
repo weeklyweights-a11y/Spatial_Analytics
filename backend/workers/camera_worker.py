@@ -6,6 +6,7 @@ import argparse
 import json
 import signal
 import sys
+import threading
 import time
 from collections import deque
 from datetime import datetime, timezone
@@ -25,9 +26,11 @@ from backend.core.person_detector import PersonDetector
 from backend.core.person_tracker import PersonTracker
 from backend.core.zone_classifier import ZoneClassifier
 from backend.db import redis_sync
+from backend.db.sync_database import sync_session
 from backend.utils.participant_names import ParticipantNameCache
 from backend.utils.stream import frame_generator_with_reconnect
-from backend.utils.zone_loader import load_zones_yaml, zones_for_camera
+from backend.utils.zone_db_loader import load_zones_from_db
+from backend.utils.zone_loader import ZoneConfig, load_zones_yaml, zones_for_camera
 
 ACTIVITY_COLORS = {
     "coding": "#22c55e",
@@ -73,8 +76,9 @@ class CameraWorker:
         self.linker = IdentityLinker(face_matcher=self.face_matcher, name_cache=ParticipantNameCache())
         self.activity = ActivityClassifier()
 
-        zones = zones_for_camera(load_zones_yaml(), camera_id)
+        zones = self._load_zones()
         self.zone_classifier = ZoneClassifier(zones)
+        self._start_zones_listener()
         logger.info(
             "Camera worker started: camera_id={}, rtsp_url={}, zones_loaded={}",
             camera_id,
@@ -94,6 +98,51 @@ class CameraWorker:
         self._index_path = Path(self.settings.FAISS_INDEX_PATH)
         self._map_path = Path(self.settings.EMBEDDING_MAP_PATH)
         self._update_faiss_mtimes()
+
+    def _load_zones(self) -> list[ZoneConfig]:
+        """Load zones from Postgres, fallback to YAML."""
+        try:
+            with sync_session() as session:
+                db_zones = load_zones_from_db(session, self.camera_id)
+            if db_zones:
+                return [
+                    ZoneConfig(
+                        name=z["name"],
+                        type=z["zone_type"],
+                        camera_id=z["camera_id"],
+                        floor=z["floor"],
+                        capacity=z["capacity"],
+                        polygon=z["polygon"],
+                        floor_polygon=z.get("floor_polygon") or None,
+                    )
+                    for z in db_zones
+                ]
+        except Exception as exc:
+            logger.warning(f"Zone DB load failed, using YAML: {exc}")
+        return zones_for_camera(load_zones_yaml(), self.camera_id)
+
+    def _reload_zones(self) -> None:
+        zones = self._load_zones()
+        self.zone_classifier = ZoneClassifier(zones)
+        logger.info(f"Zones reloaded: camera_id={self.camera_id}, count={len(zones)}")
+
+    def _start_zones_listener(self) -> None:
+        """Subscribe to zones_updated and reload polygons."""
+
+        def _listen() -> None:
+            r = redis_sync.get_sync_redis()
+            pubsub = r.pubsub()
+            pubsub.subscribe("zones_updated")
+            for message in pubsub.listen():
+                if message.get("type") != "message":
+                    continue
+                try:
+                    self._reload_zones()
+                except Exception as exc:
+                    logger.error(f"Zone reload failed: {exc}")
+
+        thread = threading.Thread(target=_listen, daemon=True, name="zones-updated")
+        thread.start()
 
     def _update_faiss_mtimes(self) -> None:
         idx_m = self._index_path.stat().st_mtime if self._index_path.exists() else 0.0

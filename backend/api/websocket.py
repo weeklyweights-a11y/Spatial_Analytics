@@ -16,7 +16,7 @@ from backend.api.ws_manager import ws_manager
 from backend.config import get_settings
 from backend.db.database import AsyncSessionLocal
 from backend.db.models import Participant, Score
-from backend.db.redis_client import get_leaderboard, get_participant_state, get_redis, init_redis
+from backend.db.redis_client import get_leaderboard, get_participant_state, get_redis, get_heatmap_current, invalidate_leaderboard_cache, init_redis
 
 router = APIRouter(tags=["websocket"])
 settings = get_settings()
@@ -183,28 +183,97 @@ async def ws_participant(
         await ws_manager.disconnect(channel, websocket)
 
 
+@router.websocket("/ws/heatmap")
+async def ws_heatmap(
+    websocket: WebSocket,
+    token: Annotated[Optional[str], Query()] = None,
+    access_token: Annotated[Optional[str], Cookie(alias=settings.JWT_COOKIE_NAME)] = None,
+) -> None:
+    """Push heatmap snapshots via ws_manager broadcasts."""
+    payload_data = _auth_ws(token, access_token)
+    role = payload_data.get("role", "viewer")
+    if role not in ("admin", "operator", "viewer"):
+        await websocket.close(code=4003)
+        return
+    channel = "heatmap"
+    if not await ws_manager.connect(channel, websocket):
+        await websocket.close(code=4003)
+        return
+    try:
+        snapshot = await get_heatmap_current()
+        if snapshot:
+            await websocket.send_text(
+                json.dumps({"type": "heatmap", "data": snapshot}, default=str)
+            )
+        while True:
+            await asyncio.sleep(3600)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await ws_manager.disconnect(channel, websocket)
+
+
 @router.websocket("/ws/alerts")
 async def ws_alerts(
     websocket: WebSocket,
     token: Annotated[Optional[str], Query()] = None,
     access_token: Annotated[Optional[str], Cookie(alias=settings.JWT_COOKIE_NAME)] = None,
 ) -> None:
-    """Placeholder alerts channel until Phase 4."""
-    _auth_ws(token, access_token)
+    """Forward alert pub/sub — admin/operator only."""
+    payload_data = _auth_ws(token, access_token)
+    if payload_data.get("role") not in ("admin", "operator"):
+        await websocket.close(code=4003)
+        return
     channel = "alerts"
     if not await ws_manager.connect(channel, websocket):
         await websocket.close(code=4003)
         return
     try:
         while True:
-            await websocket.send_text(
-                json.dumps({"type": "alerts", "data": [], "message": "No alerts"})
-            )
-            await asyncio.sleep(30)
+            await asyncio.sleep(3600)
     except WebSocketDisconnect:
         pass
     finally:
         await ws_manager.disconnect(channel, websocket)
+
+
+async def _heatmap_payload() -> dict:
+    snapshot = await get_heatmap_current()
+    data = snapshot or {
+        "zones": {},
+        "total_active": 0,
+        "total_registered": 0,
+        "energy_level": 0.0,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    return {"type": "heatmap", "data": data}
+
+
+async def heatmap_updated_subscriber() -> None:
+    """Background task: broadcast heatmap refresh on heatmap_updated."""
+    redis = await init_redis()
+    pubsub = redis.pubsub()
+    await pubsub.subscribe("heatmap_updated")
+    async for message in pubsub.listen():
+        if message["type"] != "message":
+            continue
+        payload = await _heatmap_payload()
+        await ws_manager.broadcast("heatmap", payload)
+
+
+async def alerts_subscriber() -> None:
+    """Background task: forward alerts channel to WebSocket clients."""
+    redis = await init_redis()
+    pubsub = redis.pubsub()
+    await pubsub.subscribe("alerts")
+    async for message in pubsub.listen():
+        if message["type"] != "message":
+            continue
+        data = message["data"]
+        if isinstance(data, bytes):
+            data = data.decode("utf-8")
+        payload = json.loads(data) if isinstance(data, str) else data
+        await ws_manager.broadcast("alerts", payload)
 
 
 async def scores_updated_subscriber() -> None:
@@ -215,5 +284,6 @@ async def scores_updated_subscriber() -> None:
     async for message in pubsub.listen():
         if message["type"] != "message":
             continue
+        await invalidate_leaderboard_cache()
         payload = await _leaderboard_payload()
         await ws_manager.broadcast("leaderboard", payload)

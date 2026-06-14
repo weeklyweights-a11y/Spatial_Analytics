@@ -124,3 +124,29 @@ async def get_camera_statuses() -> dict[str, dict[str, str]]:
         cam_id = key.split(":", 1)[-1]
         statuses[cam_id] = await r.hgetall(key)
     return statuses
+
+
+async def get_heatmap_current() -> Optional[dict[str, Any]]:
+    """GET heatmap:current parsed JSON."""
+    r = await init_redis()
+    raw = await r.get("heatmap:current")
+    if not raw:
+        return None
+    return json.loads(raw)
+
+
+async def publish_zones_updated() -> None:
+    r = await init_redis()
+    await r.publish("zones_updated", "1")
+
+
+async def publish_scoring_config_updated() -> None:
+    r = await init_redis()
+    await r.publish("scoring_config_updated", "1")
+
+
+async def invalidate_leaderboard_cache() -> None:
+    """Delete all leaderboard_cache:* keys."""
+    r = await init_redis()
+    async for key in r.scan_iter("leaderboard_cache:*"):
+        await r.delete(key)

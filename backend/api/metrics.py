@@ -10,8 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.api.deps import CurrentUser, get_face_matcher, require_role
 from backend.api.schemas import MetricsResponse
 from backend.db.database import get_db, engine
-from backend.db.models import Participant
-from backend.db.redis_client import get_camera_statuses, get_redis, get_stream_length
+from backend.db.models import Alert, HeatmapSnapshot, Participant
+from backend.db.redis_client import get_camera_statuses, get_heatmap_current, get_redis, get_stream_length
 from backend.db.redis_sync import get_scoring_last_flush_at
 
 router = APIRouter(prefix="/api/v1", tags=["metrics"])
@@ -52,6 +52,14 @@ async def get_metrics(
         flush_dt = datetime.fromisoformat(flush_at.replace("Z", "+00:00"))
         scoring_lag_seconds = (datetime.now(timezone.utc) - flush_dt).total_seconds()
 
+    snapshot_total = await db.scalar(select(func.count()).select_from(HeatmapSnapshot))
+    alerts_total = await db.scalar(select(func.count()).select_from(Alert))
+    alerts_unack = await db.scalar(
+        select(func.count()).select_from(Alert).where(Alert.acknowledged.is_(False))
+    )
+    heatmap_current = await get_heatmap_current()
+    energy_current = float(heatmap_current.get("energy_level", 0) if heatmap_current else 0)
+
     metrics = MetricsResponse(
         total_registered=total or 0,
         faiss_index_size=face_matcher.count(),
@@ -61,5 +69,9 @@ async def get_metrics(
         events_in_stream=events_in_stream,
         total_persons_tracked=total_persons,
         cameras=cameras,
+        heatmap_snapshots_total=int(snapshot_total or 0),
+        alerts_fired_total=int(alerts_total or 0),
+        alerts_unacknowledged=int(alerts_unack or 0),
+        energy_level_current=energy_current,
     )
     return {"data": {**metrics.model_dump(), "scoring_lag_seconds": scoring_lag_seconds}}

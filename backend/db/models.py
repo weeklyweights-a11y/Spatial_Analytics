@@ -83,6 +83,7 @@ class Zone(Base):
     zone_type: Mapped[str] = mapped_column(String(50), nullable=False)
     camera_id: Mapped[str] = mapped_column(String(50), nullable=False)
     polygon_coords: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    floor_polygon: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     floor: Mapped[int] = mapped_column(Integer, nullable=False)
     capacity: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     sponsor_id: Mapped[Optional[uuid.UUID]] = mapped_column(
@@ -176,6 +177,31 @@ class HeatmapSnapshot(Base):
     zone_occupancy: Mapped[dict] = mapped_column(JSONB, nullable=False)
     total_active: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     energy_level: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+
+class Alert(Base):
+    """Organizer alert fired by the heatmap worker."""
+
+    __tablename__ = "alerts"
+    __table_args__ = (
+        CheckConstraint(
+            "severity IN ('info', 'warning', 'critical')",
+            name="alerts_severity_check",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    rule_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    severity: Mapped[str] = mapped_column(String(20), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    zone: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    floor: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    fired_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    acknowledged: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    acknowledged_by: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=True
+    )
+    acknowledged_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class User(Base):

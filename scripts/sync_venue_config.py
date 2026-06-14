@@ -56,12 +56,14 @@ def sync_venue(session: Session, configs_dir: Path) -> tuple[int, int]:
         name = z["name"]
         zone_id = _zone_uuid(name, zone_id_map)
         polygon = z.get("polygon", [])
+        floor_poly = z.get("floor_polygon")
         existing = session.get(Zone, zone_id)
         fields = {
             "name": name,
             "zone_type": z.get("type", "coding"),
             "camera_id": z.get("camera_id", ""),
             "polygon_coords": {"points": polygon},
+            "floor_polygon": {"points": floor_poly} if floor_poly else None,
             "floor": int(z.get("floor", 0)),
             "capacity": z.get("capacity"),
         }

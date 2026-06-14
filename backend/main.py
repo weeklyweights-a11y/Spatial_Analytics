@@ -18,7 +18,23 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from backend.api import auth, cameras, health, metrics, participants, registration, scores, tracking, websocket as ws_routes
+from backend.api import (
+    alerts,
+    analytics,
+    auth,
+    cameras,
+    config as config_routes,
+    health,
+    metrics,
+    participants,
+    registration,
+    scores,
+    tracking,
+    venues,
+    websocket as ws_routes,
+    zones,
+)
+from fastapi.staticfiles import StaticFiles
 from backend.config import get_settings
 from backend.core.face_detector import FaceDetector
 from backend.core.face_matcher import FaceMatcher
@@ -90,9 +106,13 @@ async def lifespan(app: FastAPI):
 
     task = asyncio.create_task(_health_log_loop(app))
     ws_task = asyncio.create_task(ws_routes.scores_updated_subscriber())
+    heatmap_task = asyncio.create_task(ws_routes.heatmap_updated_subscriber())
+    alerts_task = asyncio.create_task(ws_routes.alerts_subscriber())
     yield
     task.cancel()
     ws_task.cancel()
+    heatmap_task.cancel()
+    alerts_task.cancel()
     await close_redis()
 
 
@@ -153,6 +173,16 @@ def create_app() -> FastAPI:
     app.include_router(scores.router)
     app.include_router(tracking.router)
     app.include_router(cameras.router)
+    app.include_router(analytics.router)
+    app.include_router(alerts.router)
+    app.include_router(zones.router)
+    app.include_router(venues.router)
+    app.include_router(config_routes.router)
+    venue_path = Path("/app/data/venue")
+    if not venue_path.exists():
+        venue_path = Path(__file__).resolve().parents[1] / "data" / "venue"
+    venue_path.mkdir(parents=True, exist_ok=True)
+    app.mount("/static/venue", StaticFiles(directory=str(venue_path)), name="venue")
     app.include_router(ws_routes.router)
     app.include_router(health.router)
     app.include_router(metrics.router)

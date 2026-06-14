@@ -12,7 +12,7 @@ from backend.api.schemas import CameraHealthStatus, HealthCheckDetail, HealthRes
 from backend.config import get_settings
 from backend.db.database import get_db, engine
 from backend.db.redis_client import get_camera_statuses, get_redis
-from backend.db.redis_sync import get_scoring_last_flush_at, get_scoring_status
+from backend.db.redis_sync import get_heatmap_status, get_scoring_last_flush_at, get_scoring_status
 from backend.middleware.rate_limit import limiter
 
 settings = get_settings()
@@ -125,6 +125,25 @@ async def health_check(
     except Exception as exc:
         checks["scoring_engine"] = HealthCheckDetail(status="error", detail=str(exc))
         all_ok = False
+
+    try:
+        hm = get_heatmap_status()
+        last_hb = hm.get("last_heartbeat", "")
+        stale = True
+        if last_hb:
+            from datetime import datetime, timezone
+
+            hb_dt = datetime.fromisoformat(last_hb.replace("Z", "+00:00"))
+            stale = (datetime.now(timezone.utc) - hb_dt).total_seconds() > 30
+        hm_status = hm.get("status", "unknown")
+        checks["heatmap_worker"] = HealthCheckDetail(
+            status="ok" if not stale and hm_status == "running" else "degraded",
+            detail=f"status={hm_status}, stale={stale}",
+        )
+        if stale:
+            all_ok = False
+    except Exception as exc:
+        checks["heatmap_worker"] = HealthCheckDetail(status="error", detail=str(exc))
 
     status_str = "healthy" if all_ok else "degraded"
     if any(c.status == "error" for c in checks.values()):

@@ -12,7 +12,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from backend.config import get_settings
-from backend.db.models import ActivityLog, Score, ScoringConfig, Zone
+from backend.db.models import ActivityLog, Alert, Participant, Score, ScoringConfig, Zone
 
 _engine: Optional[Engine] = None
 _SessionLocal: Optional[sessionmaker[Session]] = None
@@ -130,3 +130,91 @@ def update_all_ranks(session: Session) -> None:
             """
         )
     )
+
+
+def load_zone_metadata(session: Session) -> list[dict[str, Any]]:
+    """Load zone metadata for heatmap snapshots."""
+    rows = session.execute(
+        select(
+            Zone.name,
+            Zone.zone_type,
+            Zone.floor,
+            Zone.capacity,
+            Zone.floor_polygon,
+        )
+    ).all()
+    result: list[dict[str, Any]] = []
+    for name, zone_type, floor, capacity, floor_polygon in rows:
+        result.append(
+            {
+                "name": name,
+                "zone_type": zone_type,
+                "floor": floor,
+                "capacity": capacity or 50,
+                "floor_polygon": floor_polygon,
+            }
+        )
+    return result
+
+
+def count_registered_participants(session: Session) -> int:
+    """Count non-opted-out participants."""
+    from sqlalchemy import func
+
+    val = session.scalar(
+        select(func.count()).select_from(Participant).where(Participant.opted_out.is_(False))
+    )
+    return int(val or 0)
+
+
+def insert_heatmap_snapshot(
+    session: Session,
+    timestamp: datetime,
+    zone_occupancy: dict[str, Any],
+    total_active: int,
+    energy_level: float,
+) -> None:
+    """INSERT one heatmap_snapshots row."""
+    from backend.db.models import HeatmapSnapshot
+
+    session.add(
+        HeatmapSnapshot(
+            timestamp=timestamp,
+            zone_occupancy=zone_occupancy,
+            total_active=total_active,
+            energy_level=energy_level,
+        )
+    )
+
+
+def insert_alert(
+    session: Session,
+    rule_name: str,
+    severity: str,
+    message: str,
+    zone: Optional[str],
+    floor: Optional[int],
+    fired_at: datetime,
+) -> uuid.UUID:
+    """INSERT alert row and return id."""
+    alert = Alert(
+        rule_name=rule_name,
+        severity=severity,
+        message=message,
+        zone=zone,
+        floor=floor,
+        fired_at=fired_at,
+    )
+    session.add(alert)
+    session.flush()
+    return alert.id
+
+
+def count_activity_logs_for_zone(session: Session, zone_id: uuid.UUID) -> int:
+    """Count activity_logs referencing a zone."""
+    from sqlalchemy import func
+
+    val = session.scalar(
+        select(func.count()).select_from(ActivityLog).where(ActivityLog.zone_id == zone_id)
+    )
+    return int(val or 0)

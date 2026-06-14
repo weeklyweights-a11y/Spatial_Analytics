@@ -7,6 +7,7 @@ export interface LeaderboardEntry {
   participant_id: string;
   name: string;
   team_name: string;
+  track?: string;
   total_score: number;
   rank: number | null;
   current_activity?: string;
@@ -71,4 +72,64 @@ export interface ScoreDetail {
   breakdown: Record<string, { minutes: number; points: number; percentage: number }>;
   registered_at?: string;
   last_seen_at?: string;
+}
+
+export interface HeatmapZoneData {
+  count: number;
+  capacity: number;
+  pct: number;
+  floor: number;
+}
+
+export interface HeatmapSnapshot {
+  zones: Record<string, HeatmapZoneData>;
+  total_active: number;
+  total_registered: number;
+  energy_level: number;
+  timestamp: string;
+}
+
+export interface HeatmapMessage {
+  type: "heatmap";
+  data: HeatmapSnapshot;
+}
+
+export interface AlertMessage {
+  type: "alert";
+  id: string;
+  rule_name: string;
+  severity: "info" | "warning" | "critical";
+  message: string;
+  zone?: string;
+  floor?: number;
+  timestamp: string;
+}
+
+export interface ZoneDefinition {
+  id: string;
+  name: string;
+  zone_type: string;
+  camera_id: string;
+  polygon_coords: number[][];
+  floor_polygon: number[][];
+  floor: number;
+  capacity: number;
+}
+
+export interface FloorPlan {
+  floor: number;
+  name: string;
+  image_url: string;
+}
+
+export interface CompareParticipant {
+  id: string;
+  name: string;
+  team_name: string;
+  track: string;
+  total_score: number;
+  rank: number | null;
+  tags: string[];
+  radar_data: RadarPoint[];
+  breakdown: Record<string, { minutes: number; points: number; percentage: number }>;
 }

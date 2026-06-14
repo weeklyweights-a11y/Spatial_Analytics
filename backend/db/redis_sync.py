@@ -233,3 +233,122 @@ def get_scoring_last_flush_at() -> Optional[str]:
     r = get_sync_redis()
     val = r.get(SCORING_LAST_FLUSH_KEY)
     return val if val else None
+
+
+HEATMAP_CURRENT_KEY = "heatmap:current"
+HEATMAP_UPDATED_CHANNEL = "heatmap_updated"
+ALERTS_CHANNEL = "alerts"
+ALERTS_LIST_KEY = "alerts"
+HEATMAP_STATUS_KEY = "worker_status:heatmap"
+
+
+def set_heatmap_current(payload: dict[str, Any]) -> None:
+    """SET heatmap:current JSON snapshot."""
+    r = get_sync_redis()
+    r.set(HEATMAP_CURRENT_KEY, json.dumps(payload))
+
+
+def get_heatmap_current() -> Optional[dict[str, Any]]:
+    """GET heatmap:current parsed JSON."""
+    r = get_sync_redis()
+    raw = r.get(HEATMAP_CURRENT_KEY)
+    if not raw:
+        return None
+    return json.loads(raw)
+
+
+def publish_heatmap_updated() -> None:
+    r = get_sync_redis()
+    r.publish(HEATMAP_UPDATED_CHANNEL, "1")
+
+
+def publish_alert(payload: dict[str, Any]) -> None:
+    r = get_sync_redis()
+    r.publish(ALERTS_CHANNEL, json.dumps(payload))
+
+
+def push_alert_list(payload: dict[str, Any]) -> None:
+    """LPUSH alert JSON and trim to last 100."""
+    r = get_sync_redis()
+    r.lpush(ALERTS_LIST_KEY, json.dumps(payload))
+    r.ltrim(ALERTS_LIST_KEY, 0, 99)
+
+
+def set_heatmap_heartbeat(iso_ts: str, status: str = "running") -> None:
+    r = get_sync_redis()
+    r.hset(
+        HEATMAP_STATUS_KEY,
+        mapping={"last_heartbeat": iso_ts, "status": status},
+    )
+
+
+def get_heatmap_status() -> dict[str, str]:
+    r = get_sync_redis()
+    return r.hgetall(HEATMAP_STATUS_KEY)
+
+
+def count_active_participants(within_seconds: int = 300) -> int:
+    """Count participant:* keys with last_seen within window."""
+    from datetime import datetime, timezone
+
+    r = get_sync_redis()
+    now = datetime.now(timezone.utc)
+    count = 0
+    for key in r.scan_iter("participant:*"):
+        fields = r.hgetall(key)
+        last_seen = fields.get("last_seen")
+        if not last_seen:
+            continue
+        try:
+            seen_dt = datetime.fromisoformat(last_seen.replace("Z", "+00:00"))
+            if (now - seen_dt).total_seconds() <= within_seconds:
+                count += 1
+        except ValueError:
+            continue
+    return count
+
+
+def get_alert_cooldown(rule: str, zone: str) -> Optional[float]:
+    """Return remaining cooldown seconds or None if expired."""
+    r = get_sync_redis()
+    key = f"alert_cooldown:{rule}:{zone}"
+    ttl = r.ttl(key)
+    if ttl is None or ttl < 0:
+        return None
+    return float(ttl)
+
+
+def set_alert_cooldown(rule: str, zone: str, seconds: int) -> None:
+    r = get_sync_redis()
+    key = f"alert_cooldown:{rule}:{zone}"
+    r.setex(key, seconds, "1")
+
+
+def get_zone_duration_key(kind: str, zone_name: str) -> str:
+    return f"zone_{kind}_since:{zone_name}"
+
+
+def get_zone_duration_since(kind: str, zone_name: str) -> Optional[float]:
+    """Return epoch seconds when duration tracking started, or None."""
+    r = get_sync_redis()
+    val = r.get(get_zone_duration_key(kind, zone_name))
+    if not val:
+        return None
+    return float(val)
+
+
+def set_zone_duration_since(kind: str, zone_name: str, epoch: float) -> None:
+    r = get_sync_redis()
+    r.set(get_zone_duration_key(kind, zone_name), str(epoch))
+
+
+def clear_zone_duration(kind: str, zone_name: str) -> None:
+    r = get_sync_redis()
+    r.delete(get_zone_duration_key(kind, zone_name))
+
+
+def invalidate_leaderboard_cache() -> None:
+    """Delete all leaderboard_cache:* keys."""
+    r = get_sync_redis()
+    for key in r.scan_iter("leaderboard_cache:*"):
+        r.delete(key)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import signal
 import sys
+import threading
 import time
 import uuid
 from datetime import datetime, timezone
@@ -49,6 +50,27 @@ class ScoringWorker:
         self._pending_last_id: Optional[str] = None
         with sync_session() as session:
             self._config = load_scoring_config(get_scoring_config_rows(session))
+        self._start_config_listener()
+
+    def _start_config_listener(self) -> None:
+        """Reload scoring weights when config changes."""
+
+        def _listen() -> None:
+            r = redis_sync.get_sync_redis()
+            pubsub = r.pubsub()
+            pubsub.subscribe("scoring_config_updated")
+            for message in pubsub.listen():
+                if message.get("type") != "message":
+                    continue
+                try:
+                    with sync_session() as session:
+                        self._config = load_scoring_config(get_scoring_config_rows(session))
+                    logger.info("Scoring config reloaded from database")
+                except Exception as exc:
+                    logger.error(f"Scoring config reload failed: {exc}")
+
+        thread = threading.Thread(target=_listen, daemon=True, name="scoring-config")
+        thread.start()
         self._engine = get_sync_engine()
 
     def _handle_sigterm(self, *_args: Any) -> None:

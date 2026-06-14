@@ -185,15 +185,27 @@ services:
       - ./configs:/app/configs:ro
       - ./data:/app/data:ro
 
-  heatmap-worker-placeholder:
+  heatmap-worker:
     build:
       context: .
       dockerfile: backend/Dockerfile
     restart: always
-    command: python -c "import time; time.sleep(999999)"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: python -m backend.workers.heatmap_worker
+    environment:
+      WORKER_DATABASE_URL: postgresql://spatialscore:${DB_PASSWORD}@postgres:5432/spatialscore
+      REDIS_URL: redis://redis:6379/0
+      HEATMAP_SNAPSHOT_INTERVAL: ${HEATMAP_SNAPSHOT_INTERVAL:-10}
+      JWT_SECRET: ${JWT_SECRET}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
     volumes:
       - ./models:/app/models:ro
       - ./configs:/app/configs:ro
+      - ./data:/app/data:rw
 
 volumes:
   pgdata:

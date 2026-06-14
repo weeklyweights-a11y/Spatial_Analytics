@@ -34,6 +34,11 @@ def _default_database_url() -> str:
 
 os.environ.setdefault("JWT_SECRET", "test-jwt-secret-key-minimum-32-characters-long")
 os.environ.setdefault("DATABASE_URL", _default_database_url())
+_db_url = os.environ["DATABASE_URL"]
+os.environ.setdefault(
+    "WORKER_DATABASE_URL",
+    _db_url.replace("postgresql+asyncpg://", "postgresql://"),
+)
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/1")
 os.environ.setdefault("FAISS_INDEX_PATH", "/tmp/spatialscore_test/faiss_index.bin")
 os.environ.setdefault("EMBEDDING_MAP_PATH", "/tmp/spatialscore_test/embedding_map.json")
@@ -64,6 +69,32 @@ def anyio_backend():
     return "asyncio"
 
 
+def _ensure_phase4_schema(engine) -> None:
+    """Apply Phase 4 columns/tables missing from older test DB create_all snapshots."""
+    from sqlalchemy import text
+
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE zones ADD COLUMN IF NOT EXISTS floor_polygon JSONB"))
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS alerts (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    rule_name VARCHAR(50) NOT NULL,
+                    severity VARCHAR(20) NOT NULL,
+                    message TEXT NOT NULL,
+                    zone VARCHAR(100),
+                    floor INTEGER,
+                    fired_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    acknowledged BOOLEAN NOT NULL DEFAULT FALSE,
+                    acknowledged_at TIMESTAMPTZ,
+                    acknowledged_by UUID REFERENCES users(id)
+                )
+                """
+            )
+        )
+
+
 @pytest.fixture(scope="session")
 def sync_engine():
     settings = get_settings()
@@ -71,6 +102,7 @@ def sync_engine():
     try:
         Base.metadata.create_all(engine)
         _ensure_partitioned_activity_logs(engine)
+        _ensure_phase4_schema(engine)
         yield engine
     except Exception as exc:
         pytest.skip(f"PostgreSQL not available: {exc}")
@@ -159,7 +191,10 @@ async def _noop_lifespan(_app):
 @pytest.fixture(autouse=True)
 def _reset_rate_limits():
     _clear_rate_limits()
+    previous_enabled = getattr(limiter, "enabled", True)
+    limiter.enabled = False
     yield
+    limiter.enabled = previous_enabled
     _clear_rate_limits()
 
 

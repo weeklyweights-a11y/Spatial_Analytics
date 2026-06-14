@@ -16,6 +16,10 @@ export default defineConfig({
         changeOrigin: true,
         ws: true,
       },
+      "/static/venue": {
+        target: process.env.VITE_API_URL || "http://localhost:8000",
+        changeOrigin: true,
+      },
     },
   },
 });
