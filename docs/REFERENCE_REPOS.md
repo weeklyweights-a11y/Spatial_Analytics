@@ -44,3 +44,17 @@ Study-only clones (via `scripts/setup_reference_repos.sh`). **Do not copy-paste*
 | Upstream concept | Our file | Take |
 |------------------|----------|------|
 | Keypoint angles / motion heuristics | `backend/core/activity_classifier.py` | Zone + wrist position rules for coding/collaborating/idle |
+
+## roboflow/supervision — LineZone (Phase 5)
+
+| Upstream docs | Our file | Take |
+|---------------|----------|------|
+| [LineZone tutorial](https://supervision.roboflow.com/latest/detection/tools/line_zone/) | `backend/core/sponsor_line_tracker.py` | `sv.LineZone.trigger` for sponsor entry/exit |
+| Line definitions in YAML | `configs/zones.yaml` (`sponsor_lines`) | Entrance lines separate from booth polygons |
+
+## crowdbotp/OpenTraj (Phase 5)
+
+| Upstream | Our file | Take |
+|----------|----------|------|
+| ETH/UCY TSV schema | `backend/core/trajectory_export.py` | `frame_id`, `pedestrian_id`, `pos_x`, `pos_y`, `activity`, `zone` |
+| Anonymized exports | `backend/api/export.py` | SHA256 participant ids when `anonymize=true` |

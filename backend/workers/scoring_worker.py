@@ -15,6 +15,7 @@ from loguru import logger
 from sqlalchemy.exc import SQLAlchemyError
 
 from backend.config import get_settings
+from backend.core.sponsor_processor import process_sponsor_events
 from backend.core.scoring_engine import (
     ScoreRowSnapshot,
     aggregate_events_by_participant,
@@ -90,7 +91,29 @@ class ScoringWorker:
         new_last = str(events[-1].get("id", last_id))
         return events, new_last
 
+    def _collect_sponsor_events(self, last_id: str) -> tuple[list[dict[str, Any]], str]:
+        events = redis_sync.read_sponsor_events(last_id=last_id, count=10000)
+        if not events:
+            return [], last_id
+        new_last = str(events[-1].get("id", last_id))
+        return events, new_last
+
+    def _flush_sponsor_stream(self) -> None:
+        """Consume sponsor_stream and persist visits + hourly engagement."""
+        last_id = redis_sync.get_sponsor_last_id() or "0"
+        events, new_last = self._collect_sponsor_events(last_id)
+        try:
+            with sync_session() as session:
+                count = process_sponsor_events(session, events)
+            if events:
+                redis_sync.set_sponsor_last_id(new_last)
+            if count:
+                logger.info(f"Sponsor stream flush: events={count}")
+        except SQLAlchemyError as exc:
+            logger.error(f"Sponsor stream flush failed: {exc}")
+
     def _flush_once(self) -> None:
+        self._flush_sponsor_stream()
         t0 = time.monotonic()
         last_id = redis_sync.get_scoring_last_id() or "0"
         new_events, new_last_id = self._collect_events(last_id)

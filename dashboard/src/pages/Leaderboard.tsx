@@ -2,12 +2,14 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../utils/api";
 import { RadarChart } from "../components/RadarChart";
+import { useAuth } from "../hooks/useAuth";
 import type { CompareParticipant, LeaderboardEntry } from "../types";
 
 const TRACKS = ["", "ai_ml", "web3", "devtools", "fintech", "health", "open"];
 const SORT_OPTIONS = ["total_score", "coding", "collaborating", "mentoring", "presenting", "networking", "helping"];
 
 export default function LeaderboardPage() {
+  const { role } = useAuth();
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -71,13 +73,23 @@ export default function LeaderboardPage() {
     <div className="space-y-4">
       <div className="flex flex-wrap gap-3 items-center justify-between">
         <h1 className="text-2xl font-bold text-slate-100">Leaderboard</h1>
-        <button
-          type="button"
-          onClick={() => setCompareMode((v) => !v)}
-          className={`px-3 py-1 rounded-lg text-sm ${compareMode ? "bg-emerald-600" : "bg-slate-800"}`}
-        >
-          Compare {compareMode ? "ON" : "OFF"}
-        </button>
+        <div className="flex gap-2">
+          {role === "admin" && (
+            <a
+              href={`${import.meta.env.VITE_API_URL || ""}/api/v1/export/scores`}
+              className="px-3 py-1 rounded-lg text-sm bg-slate-800 hover:bg-slate-700"
+            >
+              Export Scores CSV
+            </a>
+          )}
+          <button
+            type="button"
+            onClick={() => setCompareMode((v) => !v)}
+            className={`px-3 py-1 rounded-lg text-sm ${compareMode ? "bg-emerald-600" : "bg-slate-800"}`}
+          >
+            Compare {compareMode ? "ON" : "OFF"}
+          </button>
+        </div>
       </div>
       <div className="flex flex-wrap gap-2">
         <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-sm">

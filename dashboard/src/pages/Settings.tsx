@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../utils/api";
 import { ZoneEditorCanvas } from "../components/ZoneEditorCanvas";
+import { useAuth } from "../hooks/useAuth";
 import type { ZoneDefinition } from "../types";
 
 interface CameraOption {
@@ -15,7 +16,8 @@ interface ScoringRow {
 }
 
 export default function SettingsPage() {
-  const [tab, setTab] = useState<"zones" | "scoring">("zones");
+  const { role } = useAuth();
+  const [tab, setTab] = useState<"zones" | "scoring" | "export">("zones");
   const [cameras, setCameras] = useState<CameraOption[]>([]);
   const [cameraId, setCameraId] = useState("");
   const [zones, setZones] = useState<ZoneDefinition[]>([]);
@@ -68,6 +70,11 @@ export default function SettingsPage() {
         <button type="button" onClick={() => setTab("scoring")} className={`px-3 py-1 rounded ${tab === "scoring" ? "bg-emerald-600" : "bg-slate-800"}`}>
           Scoring Weights
         </button>
+        {role === "admin" && (
+          <button type="button" onClick={() => setTab("export")} className={`px-3 py-1 rounded ${tab === "export" ? "bg-emerald-600" : "bg-slate-800"}`}>
+            Export
+          </button>
+        )}
       </div>
       {tab === "zones" && (
         <div className="space-y-4">
@@ -130,6 +137,82 @@ export default function SettingsPage() {
           </button>
         </div>
       )}
+      {tab === "export" && role === "admin" && <ExportTab />}
+    </div>
+  );
+}
+
+async function downloadExport(path: string, filename: string, onProgress: (pct: number) => void) {
+  const base = import.meta.env.VITE_API_URL || "";
+  const res = await fetch(`${base}${path}`, { credentials: "include" });
+  const total = Number(res.headers.get("Content-Length") || 0);
+  const reader = res.body?.getReader();
+  if (!reader) return;
+  const chunks: Uint8Array[] = [];
+  let received = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value) {
+      chunks.push(value);
+      received += value.length;
+      if (total > 0) onProgress(Math.round((received / total) * 100));
+    }
+  }
+  const blob = new Blob(chunks as BlobPart[]);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+  onProgress(100);
+}
+
+function ExportTab() {
+  const [progress, setProgress] = useState<number | null>(null);
+  const [anonymize, setAnonymize] = useState(false);
+
+  const cards = [
+    { title: "Participant Scores", desc: "CSV of all scores (~small)", path: "/api/v1/export/scores", file: "scores.csv" },
+    { title: "Activity Logs", desc: "Full activity log CSV — may take a minute", path: "/api/v1/export/activity-logs", file: "activity_logs.csv" },
+    {
+      title: "Trajectory Data",
+      desc: "OpenTraj TSV for robotics research",
+      path: `/api/v1/export/trajectories?format=opentraj&anonymize=${anonymize}`,
+      file: "trajectories.tsv",
+    },
+  ];
+
+  return (
+    <div className="space-y-4 max-w-xl">
+      {progress !== null && (
+        <div className="w-full bg-slate-800 rounded h-2">
+          <div className="bg-emerald-500 h-2 rounded transition-all" style={{ width: `${progress}%` }} />
+        </div>
+      )}
+      {cards.map((c) => (
+        <div key={c.title} className="p-4 rounded-lg border border-slate-800 bg-slate-950">
+          <h3 className="font-semibold text-slate-100">{c.title}</h3>
+          <p className="text-sm text-slate-400 mt-1">{c.desc}</p>
+          {c.title === "Trajectory Data" && (
+            <label className="flex items-center gap-2 text-sm text-slate-300 mt-2">
+              <input type="checkbox" checked={anonymize} onChange={(e) => setAnonymize(e.target.checked)} />
+              Anonymize participant IDs
+            </label>
+          )}
+          <button
+            type="button"
+            className="mt-3 px-3 py-1 rounded bg-emerald-600 text-sm"
+            onClick={() => {
+              setProgress(0);
+              downloadExport(c.path, c.file, setProgress).catch(() => setProgress(null));
+            }}
+          >
+            Download
+          </button>
+        </div>
+      ))}
     </div>
   );
 }

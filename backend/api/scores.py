@@ -292,20 +292,33 @@ async def get_score_timeline(
     for row in rows:
         hour_dt: datetime = row.hour
         hour_key = hour_dt.astimezone(timezone.utc).strftime("%H:00")
-        if hour_key not in by_hour or row.cnt > by_hour[hour_key]["cnt"]:
+        if hour_key not in by_hour:
             by_hour[hour_key] = {
                 "zone": zone_map.get(row.zone_id, "unknown"),
-                "activity": row.activity,
-                "minutes": float(row.cnt),
-                "cnt": row.cnt,
+                "activities": {},
+                "total_cnt": 0,
             }
+        by_hour[hour_key]["activities"][row.activity] = (
+            by_hour[hour_key]["activities"].get(row.activity, 0) + row.cnt
+        )
+        by_hour[hour_key]["total_cnt"] += row.cnt
+        if row.cnt >= by_hour[hour_key].get("primary_cnt", 0):
+            by_hour[hour_key]["zone"] = zone_map.get(row.zone_id, "unknown")
+            by_hour[hour_key]["primary_activity"] = row.activity
+            by_hour[hour_key]["primary_cnt"] = row.cnt
+
     for hour_key, data in sorted(by_hour.items()):
+        total_cnt = data["total_cnt"] or 1
+        sub: dict[str, float] = {}
+        for act, cnt in data["activities"].items():
+            sub[act] = round(60.0 * (cnt / total_cnt), 1)
         timeline.append(
             ActivityTimelineHour(
                 hour=hour_key,
-                zone=data["zone"],
-                primary_activity=data["activity"],
-                minutes=data["minutes"],
+                zone=data.get("zone", "unknown"),
+                primary_activity=data.get("primary_activity", "idle"),
+                minutes=float(total_cnt),
+                sub_activities=sub,
             )
         )
     return {"data": ActivityTimelineResponse(timeline=timeline).model_dump(mode="json")}

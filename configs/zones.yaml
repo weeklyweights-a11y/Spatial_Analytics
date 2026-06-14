@@ -46,3 +46,50 @@ zones:
       - [500, 300]
       - [500, 450]
       - [100, 450]
+
+  - name: Lovable Booth
+    type: sponsor
+    sponsor_name: Lovable
+    camera_id: CAM-01
+    floor: 0
+    capacity: 30
+    polygon:
+      - [650, 400]
+      - [950, 400]
+      - [950, 650]
+      - [650, 650]
+    floor_polygon:
+      - [200, 320]
+      - [350, 320]
+      - [350, 420]
+      - [200, 420]
+
+  - name: DevTools Booth
+    type: sponsor
+    sponsor_name: DevTools Co
+    camera_id: CAM-02
+    floor: 0
+    capacity: 25
+    polygon:
+      - [100, 100]
+      - [500, 100]
+      - [500, 400]
+      - [100, 400]
+    floor_polygon:
+      - [120, 120]
+      - [380, 120]
+      - [380, 350]
+      - [120, 350]
+
+sponsor_lines:
+  - name: Lovable Booth Entrance
+    camera_id: CAM-01
+    sponsor_name: Lovable
+    start: [650, 500]
+    end: [950, 500]
+
+  - name: DevTools Booth Entrance
+    camera_id: CAM-02
+    sponsor_name: DevTools Co
+    start: [100, 250]
+    end: [500, 250]

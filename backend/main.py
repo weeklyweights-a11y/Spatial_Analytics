@@ -24,11 +24,13 @@ from backend.api import (
     auth,
     cameras,
     config as config_routes,
+    export,
     health,
     metrics,
     participants,
     registration,
     scores,
+    sponsors,
     tracking,
     venues,
     websocket as ws_routes,
@@ -178,11 +180,18 @@ def create_app() -> FastAPI:
     app.include_router(zones.router)
     app.include_router(venues.router)
     app.include_router(config_routes.router)
+    app.include_router(sponsors.router)
+    app.include_router(export.router)
     venue_path = Path("/app/data/venue")
     if not venue_path.exists():
         venue_path = Path(__file__).resolve().parents[1] / "data" / "venue"
     venue_path.mkdir(parents=True, exist_ok=True)
     app.mount("/static/venue", StaticFiles(directory=str(venue_path)), name="venue")
+    static_path = Path("/app/backend/static")
+    if not static_path.exists():
+        static_path = Path(__file__).resolve().parent / "static"
+    if static_path.exists():
+        app.mount("/static", StaticFiles(directory=str(static_path)), name="static")
     app.include_router(ws_routes.router)
     app.include_router(health.router)
     app.include_router(metrics.router)

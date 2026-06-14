@@ -164,7 +164,42 @@ class SponsorEngagement(Base):
     unique_visitors: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     total_visits: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     avg_dwell_seconds: Mapped[float] = mapped_column(Float, default=0.0, server_default="0")
+    median_dwell_seconds: Mapped[float] = mapped_column(Float, default=0.0, server_default="0")
     return_visitors: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    peak_visitors_in_hour: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+
+
+class ParticipantSponsorVisit(Base):
+    """Individual sponsor booth visit for a participant."""
+
+    __tablename__ = "participant_sponsor_visits"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    participant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("participants.id"), nullable=False
+    )
+    sponsor_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("sponsors.id"), nullable=False
+    )
+    entered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    exited_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    dwell_seconds: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    visit_number: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+
+
+class ExportLog(Base):
+    """Audit trail for admin data exports."""
+
+    __tablename__ = "export_log"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    export_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    anonymized: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    row_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
 
 
 class HeatmapSnapshot(Base):

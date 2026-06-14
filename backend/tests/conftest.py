@@ -95,6 +95,52 @@ def _ensure_phase4_schema(engine) -> None:
         )
 
 
+def _ensure_phase5_schema(engine) -> None:
+    """Apply Phase 5 columns/tables missing from older test DB create_all snapshots."""
+    from sqlalchemy import text
+
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS participant_sponsor_visits (
+                    id BIGSERIAL PRIMARY KEY,
+                    participant_id UUID NOT NULL REFERENCES participants(id),
+                    sponsor_id UUID NOT NULL REFERENCES sponsors(id),
+                    entered_at TIMESTAMPTZ NOT NULL,
+                    exited_at TIMESTAMPTZ,
+                    dwell_seconds INTEGER,
+                    visit_number INTEGER DEFAULT 1
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS export_log (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    user_id UUID NOT NULL REFERENCES users(id),
+                    export_type VARCHAR(50) NOT NULL,
+                    anonymized BOOLEAN NOT NULL DEFAULT FALSE,
+                    row_count INTEGER,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                "ALTER TABLE sponsor_engagement ADD COLUMN IF NOT EXISTS median_dwell_seconds FLOAT DEFAULT 0"
+            )
+        )
+        conn.execute(
+            text(
+                "ALTER TABLE sponsor_engagement ADD COLUMN IF NOT EXISTS peak_visitors_in_hour INTEGER DEFAULT 0"
+            )
+        )
+
+
 @pytest.fixture(scope="session")
 def sync_engine():
     settings = get_settings()
@@ -103,6 +149,7 @@ def sync_engine():
         Base.metadata.create_all(engine)
         _ensure_partitioned_activity_logs(engine)
         _ensure_phase4_schema(engine)
+        _ensure_phase5_schema(engine)
         yield engine
     except Exception as exc:
         pytest.skip(f"PostgreSQL not available: {exc}")

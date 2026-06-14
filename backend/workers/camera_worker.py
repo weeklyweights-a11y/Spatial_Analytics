@@ -24,10 +24,12 @@ from backend.core.face_matcher import FaceMatcher
 from backend.core.identity_linker import IdentityLinker
 from backend.core.person_detector import PersonDetector
 from backend.core.person_tracker import PersonTracker
+from backend.core.sponsor_line_tracker import SponsorLineTrackerSet
 from backend.core.zone_classifier import ZoneClassifier
 from backend.db import redis_sync
-from backend.db.sync_database import sync_session
+from backend.db.sync_database import load_sponsor_name_map, sync_session
 from backend.utils.participant_names import ParticipantNameCache
+from backend.utils.sponsor_line_loader import attach_sponsor_ids, sponsor_lines_for_camera
 from backend.utils.stream import frame_generator_with_reconnect
 from backend.utils.zone_db_loader import load_zones_from_db
 from backend.utils.zone_loader import ZoneConfig, load_zones_yaml, zones_for_camera
@@ -78,6 +80,7 @@ class CameraWorker:
 
         zones = self._load_zones()
         self.zone_classifier = ZoneClassifier(zones)
+        self.sponsor_line_trackers = self._load_sponsor_lines()
         self._start_zones_listener()
         logger.info(
             "Camera worker started: camera_id={}, rtsp_url={}, zones_loaded={}",
@@ -121,10 +124,25 @@ class CameraWorker:
             logger.warning(f"Zone DB load failed, using YAML: {exc}")
         return zones_for_camera(load_zones_yaml(), self.camera_id)
 
+    def _load_sponsor_lines(self) -> SponsorLineTrackerSet:
+        """Load sponsor entrance lines for this camera with DB sponsor ids."""
+        lines = sponsor_lines_for_camera(self.camera_id)
+        try:
+            with sync_session() as session:
+                name_map = load_sponsor_name_map(session)
+            id_map = {name: str(sid) for name, sid in name_map.items()}
+            lines = attach_sponsor_ids(lines, id_map)
+        except Exception as exc:
+            logger.warning(f"Sponsor line DB id lookup failed: {exc}")
+        return SponsorLineTrackerSet(lines)
+
     def _reload_zones(self) -> None:
         zones = self._load_zones()
         self.zone_classifier = ZoneClassifier(zones)
-        logger.info(f"Zones reloaded: camera_id={self.camera_id}, count={len(zones)}")
+        self.sponsor_line_trackers = self._load_sponsor_lines()
+        logger.info(
+            f"Zones reloaded: camera_id={self.camera_id}, zones={len(zones)}, sponsor_lines={self.sponsor_line_trackers.count}"
+        )
 
     def _start_zones_listener(self) -> None:
         """Subscribe to zones_updated and reload polygons."""
@@ -298,6 +316,67 @@ class CameraWorker:
         }
         redis_sync.publish_tracking_update(self.camera_id, payload)
 
+    def _process_sponsor_lines(self, detections: sv.Detections) -> None:
+        """Emit sponsor entry/exit events when identified participants cross lines."""
+        if detections.is_empty() or detections.tracker_id is None:
+            return
+        for tracker, crossed_in, crossed_out in self.sponsor_line_trackers.trigger_all(detections):
+            cfg = tracker.config
+            if not cfg.sponsor_id:
+                continue
+            for i, entered in enumerate(crossed_in):
+                if not entered:
+                    continue
+                tid = detections.tracker_id[i]
+                if tid is None:
+                    continue
+                pid, _ = self.linker.get_participant(int(tid))
+                if not pid:
+                    continue
+                name = self.linker.get_display_name(int(tid))
+                logger.info(
+                    "Sponsor entry: participant={}, sponsor={}, camera={}",
+                    name,
+                    cfg.sponsor_name,
+                    self.camera_id,
+                )
+                redis_sync.push_sponsor_event(
+                    {
+                        "type": "sponsor_entry",
+                        "participant_id": pid,
+                        "sponsor_name": cfg.sponsor_name,
+                        "sponsor_id": cfg.sponsor_id,
+                        "camera_id": self.camera_id,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    }
+                )
+            for i, exited in enumerate(crossed_out):
+                if not exited:
+                    continue
+                tid = detections.tracker_id[i]
+                if tid is None:
+                    continue
+                pid, _ = self.linker.get_participant(int(tid))
+                if not pid:
+                    continue
+                name = self.linker.get_display_name(int(tid))
+                logger.info(
+                    "Sponsor exit: participant={}, sponsor={}, camera={}",
+                    name,
+                    cfg.sponsor_name,
+                    self.camera_id,
+                )
+                redis_sync.push_sponsor_event(
+                    {
+                        "type": "sponsor_exit",
+                        "participant_id": pid,
+                        "sponsor_name": cfg.sponsor_name,
+                        "sponsor_id": cfg.sponsor_id,
+                        "camera_id": self.camera_id,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    }
+                )
+
     def _process_frame(self, frame: np.ndarray) -> None:
         t0 = time.monotonic()
         try:
@@ -319,6 +398,8 @@ class CameraWorker:
         occupancy = self.zone_classifier.trigger_occupancy(detections)
         for zone_name, count in occupancy.items():
             redis_sync.update_zone_occupancy(zone_name, count)
+
+        self._process_sponsor_lines(detections)
 
         activities: list[str] = []
         if detections.tracker_id is not None:

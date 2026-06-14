@@ -146,6 +146,61 @@ SCORING_LAST_FLUSH_KEY = "scoring_last_flush_at"
 SCORING_STATUS_KEY = "scoring_status"
 SCORES_UPDATED_CHANNEL = "scores_updated"
 
+SPONSOR_STREAM = "sponsor_stream"
+SPONSOR_STREAM_MAXLEN = 50000
+SPONSOR_LAST_ID_KEY = "sponsor_last_id"
+
+
+def push_sponsor_event(event: dict[str, Any]) -> str:
+    """XADD to sponsor_stream with MAXLEN trim."""
+    r = get_sync_redis()
+    flat = {k: json.dumps(v) if isinstance(v, (dict, list)) else str(v) for k, v in event.items()}
+    return r.xadd(SPONSOR_STREAM, flat, maxlen=SPONSOR_STREAM_MAXLEN, approximate=True)
+
+
+def read_sponsor_events(last_id: str = "0", count: int = 100) -> list[dict[str, Any]]:
+    """Read new entries from sponsor_stream after last_id."""
+    r = get_sync_redis()
+    start = "-" if last_id in ("0", "0-0") else f"({last_id}"
+    messages = r.xrange(SPONSOR_STREAM, min=start, max="+", count=count)
+    events: list[dict[str, Any]] = []
+    for msg_id, fields in messages:
+        parsed: dict[str, Any] = {"id": msg_id}
+        for key, value in fields.items():
+            parsed[key] = _parse_redis_field(value)
+        events.append(parsed)
+    return events
+
+
+def get_sponsor_last_id() -> Optional[str]:
+    r = get_sync_redis()
+    val = r.get(SPONSOR_LAST_ID_KEY)
+    return val if val else None
+
+
+def set_sponsor_last_id(msg_id: str) -> None:
+    r = get_sync_redis()
+    r.set(SPONSOR_LAST_ID_KEY, msg_id)
+
+
+SPONSOR_EVENT_FIELDS = frozenset(
+    {
+        "type",
+        "participant_id",
+        "sponsor_name",
+        "sponsor_id",
+        "camera_id",
+        "timestamp",
+    }
+)
+
+
+def validate_sponsor_event(event: dict[str, Any]) -> None:
+    """Raise AssertionError if required sponsor event fields are missing."""
+    missing = SPONSOR_EVENT_FIELDS - set(event.keys())
+    if missing:
+        raise AssertionError(f"Sponsor event missing fields: {sorted(missing)}")
+
 
 def get_scoring_last_id() -> Optional[str]:
     r = get_sync_redis()

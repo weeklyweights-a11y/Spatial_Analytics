@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     CAMERA_FRAME_TTL_SECONDS: int = 5
     BYTETRACK_CONFIG_PATH: str = ""
 
+    # Phase 5 sponsor reports
+    EVENT_NAME: str = "Buildathon Dallas"
+
     @field_validator("JWT_SECRET")
     @classmethod
     def validate_jwt_secret(cls, v: str) -> str:

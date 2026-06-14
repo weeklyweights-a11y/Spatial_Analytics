@@ -1,8 +1,9 @@
 """Participant CRUD endpoints."""
 
-import uuid
+from datetime import timezone
 from pathlib import Path
 from typing import Annotated, Optional
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
@@ -11,8 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import CurrentUser, get_face_matcher, require_role
 from backend.api.schemas import PaginationMeta, ParticipantResponse
+from backend.core.sponsor_aggregation import floor_key
 from backend.db.database import get_db
-from backend.db.models import Participant, Score
+from backend.db.models import ActivityLog, Participant, ParticipantSponsorVisit, Score, Sponsor, Zone
 
 router = APIRouter(prefix="/api/v1/participants", tags=["participants"])
 
@@ -55,9 +57,88 @@ async def list_participants(
     }
 
 
+@router.get("/{participant_id}/sponsor-visits")
+async def get_participant_sponsor_visits(
+    participant_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(require_role(["admin", "operator"])),
+) -> dict:
+    """Sponsor booth visits for participant profile."""
+    exists = await db.get(Participant, participant_id)
+    if exists is None or exists.opted_out:
+        raise HTTPException(status_code=404, detail={"error": "Participant not found", "code": "NOT_FOUND"})
+
+    rows = (
+        await db.execute(
+            select(ParticipantSponsorVisit, Sponsor.name)
+            .join(Sponsor, Sponsor.id == ParticipantSponsorVisit.sponsor_id)
+            .where(ParticipantSponsorVisit.participant_id == participant_id)
+            .order_by(ParticipantSponsorVisit.entered_at)
+        )
+    ).all()
+    visits = [
+        {
+            "sponsor_name": name,
+            "visit_number": visit.visit_number,
+            "entered_at": visit.entered_at.isoformat(),
+            "exited_at": visit.exited_at.isoformat() if visit.exited_at else None,
+            "dwell_seconds": visit.dwell_seconds,
+        }
+        for visit, name in rows
+    ]
+    return {"data": visits}
+
+
+@router.get("/{participant_id}/zone-history")
+async def get_participant_zone_history(
+    participant_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(require_role(["admin", "operator"])),
+) -> dict:
+    """Zone visit history grouped by zone with floor totals."""
+    exists = await db.get(Participant, participant_id)
+    if exists is None or exists.opted_out:
+        raise HTTPException(status_code=404, detail={"error": "Participant not found", "code": "NOT_FOUND"})
+
+    rows = (
+        await db.execute(
+            select(
+                Zone.name,
+                Zone.zone_type,
+                Zone.floor,
+                func.count().label("events"),
+            )
+            .join(ActivityLog, ActivityLog.zone_id == Zone.id)
+            .where(ActivityLog.participant_id == participant_id)
+            .group_by(Zone.name, Zone.zone_type, Zone.floor)
+            .order_by(Zone.name)
+        )
+    ).all()
+
+    zones: list[dict] = []
+    floor_minutes: dict[str, float] = {"ground": 0.0, "first": 0.0, "second": 0.0}
+    coding_zones: set[str] = set()
+    for name, zone_type, floor, events in rows:
+        minutes = float(events) / 6.0
+        zones.append({"zone": name, "zone_type": zone_type, "minutes": round(minutes, 1)})
+        fk = floor_key(int(floor))
+        if fk in floor_minutes:
+            floor_minutes[fk] += minutes
+        if zone_type == "coding":
+            coding_zones.add(name)
+
+    return {
+        "data": {
+            "zones": zones,
+            "floor_totals_hours": {k: round(v / 60.0, 1) for k, v in floor_minutes.items()},
+            "distinct_coding_zones_visited": len(coding_zones),
+        }
+    }
+
+
 @router.get("/{participant_id}")
 async def get_participant(
-    participant_id: uuid.UUID,
+    participant_id: UUID,
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(require_role(["admin", "operator"])),
 ) -> dict:
@@ -79,7 +160,7 @@ async def get_participant(
 
 @router.get("/{participant_id}/photo")
 async def get_participant_photo(
-    participant_id: uuid.UUID,
+    participant_id: UUID,
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(require_role(["admin", "operator"])),
 ) -> FileResponse:
@@ -99,7 +180,7 @@ async def get_participant_photo(
 
 @router.delete("/{participant_id}")
 async def delete_participant(
-    participant_id: uuid.UUID,
+    participant_id: UUID,
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = Depends(require_role(["admin"])),
     face_matcher=Depends(get_face_matcher),

@@ -19,12 +19,7 @@ export function useScoreTimeline(participantId: string | null) {
     queryKey: ["score-timeline", participantId],
     queryFn: async () => {
       const res = await api.get(`/api/v1/scores/${participantId}/timeline`);
-      return res.data.data.timeline as Array<{
-        hour: string;
-        zone: string;
-        primary_activity: string;
-        minutes: number;
-      }>;
+      return res.data.data.timeline as import("../types").TimelineBlock[];
     },
     enabled: !!participantId,
     staleTime: 30000,

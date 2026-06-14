@@ -133,3 +133,51 @@ export interface CompareParticipant {
   radar_data: RadarPoint[];
   breakdown: Record<string, { minutes: number; points: number; percentage: number }>;
 }
+
+export interface SponsorListItem {
+  id: string;
+  name: string;
+  tier: string | null;
+  booth_zone: string | null;
+  unique_visitors: number;
+  logo_url: string | null;
+}
+
+export interface SponsorReportData {
+  sponsor: {
+    id: string;
+    name: string;
+    tier: string | null;
+    booth_zone: string | null;
+    logo_url: string | null;
+  };
+  metrics: {
+    unique_visitors: number;
+    total_visits: number;
+    avg_dwell_seconds: number;
+    median_dwell_seconds: number;
+    return_visitors: number;
+    return_rate_pct: number;
+    peak_hour: string;
+    total_dwell_minutes: number;
+  };
+  hourly_traffic: Array<{ hour: string; visitors: number; entries: number }>;
+  visitor_breakdown: {
+    by_track: Record<string, number>;
+    by_floor: Record<string, number>;
+  };
+  top_visitors: Array<{
+    participant_id: string;
+    name: string;
+    visits: number;
+    total_dwell_minutes: number;
+  }>;
+}
+
+export interface TimelineBlock {
+  hour: string;
+  zone: string;
+  primary_activity: string;
+  minutes: number;
+  sub_activities?: Record<string, number>;
+}

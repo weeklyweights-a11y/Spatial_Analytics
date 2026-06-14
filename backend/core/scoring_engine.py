@@ -20,7 +20,7 @@ ACTIVITY_TO_MINUTE_COLUMN: dict[str, str] = {
     "idle": "idle_minutes",
     "resting": "idle_minutes",
     "eating": "idle_minutes",
-    "sponsor_engagement": "idle_minutes",
+    "sponsor_engagement": "networking_minutes",
 }
 
 RADAR_AXES = ("coding", "collaborating", "mentoring", "presenting", "networking")

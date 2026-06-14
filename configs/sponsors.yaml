@@ -1,0 +1,10 @@
+sponsors:
+  - name: Lovable
+    tier: gold
+    booth_zone_name: Lovable Booth
+    logo_url: /static/sponsors/lovable.png
+
+  - name: DevTools Co
+    tier: silver
+    booth_zone_name: DevTools Booth
+    logo_url: /static/sponsors/devtools.png

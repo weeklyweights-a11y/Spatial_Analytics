@@ -183,12 +183,13 @@ class ScoreDetailResponse(BaseModel):
 
 
 class ActivityTimelineHour(BaseModel):
-    """Hourly activity rollup."""
+    """Hourly activity rollup with sub-activity breakdown."""
 
     hour: str
     zone: str
     primary_activity: str
     minutes: float
+    sub_activities: dict[str, float] = Field(default_factory=dict)
 
 
 class ActivityTimelineResponse(BaseModel):

@@ -7,12 +7,23 @@ from contextlib import contextmanager
 from datetime import datetime
 from typing import Any, Generator, Optional
 
-from sqlalchemy import create_engine, select, text, update
+from sqlalchemy import create_engine, select, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from backend.config import get_settings
-from backend.db.models import ActivityLog, Alert, Participant, Score, ScoringConfig, Zone
+from backend.db.models import (
+    ActivityLog,
+    Alert,
+    ExportLog,
+    Participant,
+    ParticipantSponsorVisit,
+    Score,
+    ScoringConfig,
+    Sponsor,
+    SponsorEngagement,
+    Zone,
+)
 
 _engine: Optional[Engine] = None
 _SessionLocal: Optional[sessionmaker[Session]] = None
@@ -218,3 +229,213 @@ def count_activity_logs_for_zone(session: Session, zone_id: uuid.UUID) -> int:
         select(func.count()).select_from(ActivityLog).where(ActivityLog.zone_id == zone_id)
     )
     return int(val or 0)
+
+
+def load_sponsor_name_map(session: Session) -> dict[str, uuid.UUID]:
+    """Map sponsor name -> sponsor UUID."""
+    rows = session.execute(select(Sponsor.name, Sponsor.id)).all()
+    return {name: sid for name, sid in rows}
+
+
+def get_sponsor_by_id(session: Session, sponsor_id: uuid.UUID) -> Optional[Sponsor]:
+    """Fetch sponsor row."""
+    return session.get(Sponsor, sponsor_id)
+
+
+def list_sponsors(session: Session) -> list[Sponsor]:
+    """Return all sponsors ordered by name."""
+    rows = session.execute(select(Sponsor).order_by(Sponsor.name)).scalars().all()
+    return list(rows)
+
+
+def get_open_sponsor_visit(
+    session: Session,
+    participant_id: uuid.UUID,
+    sponsor_id: uuid.UUID,
+) -> Optional[ParticipantSponsorVisit]:
+    """Most recent unclosed visit for participant at sponsor."""
+    row = session.execute(
+        select(ParticipantSponsorVisit)
+        .where(
+            ParticipantSponsorVisit.participant_id == participant_id,
+            ParticipantSponsorVisit.sponsor_id == sponsor_id,
+            ParticipantSponsorVisit.exited_at.is_(None),
+        )
+        .order_by(ParticipantSponsorVisit.entered_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    return row
+
+
+def count_completed_visits(
+    session: Session,
+    participant_id: uuid.UUID,
+    sponsor_id: uuid.UUID,
+) -> int:
+    """Count closed visits for visit_number assignment."""
+    from sqlalchemy import func
+
+    val = session.scalar(
+        select(func.count())
+        .select_from(ParticipantSponsorVisit)
+        .where(
+            ParticipantSponsorVisit.participant_id == participant_id,
+            ParticipantSponsorVisit.sponsor_id == sponsor_id,
+            ParticipantSponsorVisit.exited_at.isnot(None),
+        )
+    )
+    return int(val or 0)
+
+
+def insert_sponsor_visit(
+    session: Session,
+    participant_id: uuid.UUID,
+    sponsor_id: uuid.UUID,
+    entered_at: datetime,
+    visit_number: int,
+) -> ParticipantSponsorVisit:
+    """Create open sponsor visit row."""
+    visit = ParticipantSponsorVisit(
+        participant_id=participant_id,
+        sponsor_id=sponsor_id,
+        entered_at=entered_at,
+        visit_number=visit_number,
+    )
+    session.add(visit)
+    session.flush()
+    return visit
+
+
+def close_sponsor_visit(
+    session: Session,
+    visit: ParticipantSponsorVisit,
+    exited_at: datetime,
+    dwell_seconds: int,
+) -> None:
+    """Close an open visit."""
+    visit.exited_at = exited_at
+    visit.dwell_seconds = dwell_seconds
+
+
+def list_open_sponsor_visits(session: Session) -> list[ParticipantSponsorVisit]:
+    """All visits without exit timestamp."""
+    rows = session.execute(
+        select(ParticipantSponsorVisit).where(ParticipantSponsorVisit.exited_at.is_(None))
+    ).scalars().all()
+    return list(rows)
+
+
+def last_activity_in_zone(
+    session: Session,
+    participant_id: uuid.UUID,
+    zone_id: uuid.UUID,
+) -> Optional[datetime]:
+    """Latest activity_log timestamp for participant in zone."""
+    row = session.execute(
+        select(ActivityLog.timestamp)
+        .where(
+            ActivityLog.participant_id == participant_id,
+            ActivityLog.zone_id == zone_id,
+        )
+        .order_by(ActivityLog.timestamp.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    return row
+
+
+def get_sponsor_booth_zone_id(session: Session, sponsor_id: uuid.UUID) -> Optional[uuid.UUID]:
+    """Return booth zone id for sponsor."""
+    sponsor = session.get(Sponsor, sponsor_id)
+    return sponsor.booth_zone_id if sponsor else None
+
+
+def upsert_sponsor_engagement(
+    session: Session,
+    sponsor_id: uuid.UUID,
+    hour_bucket: datetime,
+    unique_visitors: int,
+    total_visits: int,
+    avg_dwell_seconds: float,
+    median_dwell_seconds: float,
+    return_visitors: int,
+    peak_visitors_in_hour: int,
+) -> None:
+    """Upsert hourly sponsor_engagement row."""
+    existing = session.execute(
+        select(SponsorEngagement).where(
+            SponsorEngagement.sponsor_id == sponsor_id,
+            SponsorEngagement.hour_bucket == hour_bucket,
+        )
+    ).scalar_one_or_none()
+    if existing is None:
+        session.add(
+            SponsorEngagement(
+                sponsor_id=sponsor_id,
+                hour_bucket=hour_bucket,
+                unique_visitors=unique_visitors,
+                total_visits=total_visits,
+                avg_dwell_seconds=avg_dwell_seconds,
+                median_dwell_seconds=median_dwell_seconds,
+                return_visitors=return_visitors,
+                peak_visitors_in_hour=peak_visitors_in_hour,
+            )
+        )
+    else:
+        existing.unique_visitors = unique_visitors
+        existing.total_visits = total_visits
+        existing.avg_dwell_seconds = avg_dwell_seconds
+        existing.median_dwell_seconds = median_dwell_seconds
+        existing.return_visitors = return_visitors
+        existing.peak_visitors_in_hour = peak_visitors_in_hour
+    session.flush()
+
+
+def fetch_sponsor_visits_for_report(
+    session: Session,
+    sponsor_id: uuid.UUID,
+) -> list[ParticipantSponsorVisit]:
+    """All closed visits for sponsor report metrics."""
+    rows = session.execute(
+        select(ParticipantSponsorVisit)
+        .where(
+            ParticipantSponsorVisit.sponsor_id == sponsor_id,
+            ParticipantSponsorVisit.exited_at.isnot(None),
+        )
+        .order_by(ParticipantSponsorVisit.entered_at)
+    ).scalars().all()
+    return list(rows)
+
+
+def fetch_participant_visits(
+    session: Session,
+    participant_id: uuid.UUID,
+) -> list[tuple[ParticipantSponsorVisit, str]]:
+    """Sponsor visits for participant with sponsor name."""
+    rows = session.execute(
+        select(ParticipantSponsorVisit, Sponsor.name)
+        .join(Sponsor, Sponsor.id == ParticipantSponsorVisit.sponsor_id)
+        .where(ParticipantSponsorVisit.participant_id == participant_id)
+        .order_by(ParticipantSponsorVisit.entered_at)
+    ).all()
+    return list(rows)
+
+
+def insert_export_log(
+    session: Session,
+    user_id: uuid.UUID,
+    export_type: str,
+    anonymized: bool,
+) -> uuid.UUID:
+    """Create export_log row and return id."""
+    row = ExportLog(user_id=user_id, export_type=export_type, anonymized=anonymized)
+    session.add(row)
+    session.flush()
+    return row.id
+
+
+def update_export_log_count(session: Session, export_id: uuid.UUID, row_count: int) -> None:
+    """Update export_log row_count on completion."""
+    row = session.get(ExportLog, export_id)
+    if row is not None:
+        row.row_count = row_count
+
