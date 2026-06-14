@@ -48,3 +48,10 @@ async def login(
     )
     payload = TokenResponse(token=token, role=user.role, expires_at=expires_at)
     return {"data": payload.model_dump()}
+
+
+@router.post("/logout")
+async def logout(response: Response) -> dict:
+    """Clear httpOnly auth cookie."""
+    response.delete_cookie(key=settings.JWT_COOKIE_NAME)
+    return {"data": {"logged_out": True}}

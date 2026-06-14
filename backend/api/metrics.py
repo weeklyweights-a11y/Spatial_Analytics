@@ -1,6 +1,7 @@
 """Admin metrics endpoint."""
 
 import time
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy import func, select
@@ -11,6 +12,7 @@ from backend.api.schemas import MetricsResponse
 from backend.db.database import get_db, engine
 from backend.db.models import Participant
 from backend.db.redis_client import get_camera_statuses, get_redis, get_stream_length
+from backend.db.redis_sync import get_scoring_last_flush_at
 
 router = APIRouter(prefix="/api/v1", tags=["metrics"])
 
@@ -44,6 +46,11 @@ async def get_metrics(
             "status": fields.get("status"),
         }
     events_in_stream = await get_stream_length()
+    scoring_lag_seconds = None
+    flush_at = get_scoring_last_flush_at()
+    if flush_at:
+        flush_dt = datetime.fromisoformat(flush_at.replace("Z", "+00:00"))
+        scoring_lag_seconds = (datetime.now(timezone.utc) - flush_dt).total_seconds()
 
     metrics = MetricsResponse(
         total_registered=total or 0,
@@ -55,4 +62,4 @@ async def get_metrics(
         total_persons_tracked=total_persons,
         cameras=cameras,
     )
-    return {"data": metrics.model_dump()}
+    return {"data": {**metrics.model_dump(), "scoring_lag_seconds": scoring_lag_seconds}}

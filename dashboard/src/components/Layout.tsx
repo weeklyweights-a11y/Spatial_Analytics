@@ -1,12 +1,13 @@
-import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { api } from "../utils/api";
 import { useAuth } from "../hooks/useAuth";
 
 const NAV_ITEMS = [
-  { to: "/cctv-wall", label: "CCTV Wall", roles: ["admin", "operator", "viewer"] },
+  { to: "/cctv-wall", label: "CCTV Wall", roles: ["admin", "operator"] },
   { to: "/leaderboard", label: "Leaderboard", roles: ["admin", "operator", "viewer"] },
   { to: "/heatmap", label: "Heatmap", roles: ["admin", "operator", "viewer"] },
-  { to: "/analytics", label: "Analytics", roles: ["admin", "operator", "viewer"] },
-  { to: "/sponsors", label: "Sponsors", roles: ["admin", "operator", "viewer"] },
+  { to: "/analytics", label: "Analytics", roles: ["admin", "operator"] },
+  { to: "/sponsors", label: "Sponsors", roles: ["admin", "operator"] },
   { to: "/registration", label: "Registration", roles: ["admin", "operator"] },
   { to: "/settings", label: "Settings", roles: ["admin"] },
 ];
@@ -14,8 +15,19 @@ const NAV_ITEMS = [
 export function Layout() {
   const { role, logout } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const isRegistrationTablet =
     location.pathname === "/registration" && typeof window !== "undefined" && window.innerWidth >= 768 && window.innerWidth < 1024;
+
+  const handleLogout = async () => {
+    try {
+      await api.post("/api/v1/auth/logout");
+    } catch {
+      /* ignore */
+    }
+    logout();
+    navigate("/login");
+  };
 
   if (isRegistrationTablet) {
     return (
@@ -42,7 +54,7 @@ export function Layout() {
             </NavLink>
           ))}
         </nav>
-        <button onClick={logout} className="text-sm text-slate-500 hover:text-slate-300 mt-4">
+        <button onClick={handleLogout} className="text-sm text-slate-500 hover:text-slate-300 mt-4">
           Logout
         </button>
       </aside>

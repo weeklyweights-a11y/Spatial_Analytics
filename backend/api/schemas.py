@@ -120,3 +120,93 @@ TRACK_LABELS = {
     "health": "Health",
     "open": "Open",
 }
+
+
+class RadarAxis(BaseModel):
+    """Radar chart axis."""
+
+    axis: str
+    value: float
+
+
+class ScoreLeaderboardEntry(BaseModel):
+    """Leaderboard row."""
+
+    participant_id: UUID
+    name: str
+    team_name: str
+    total_score: float
+    rank: Optional[int] = None
+    current_activity: Optional[str] = None
+    current_zone: Optional[str] = None
+    tags: List[str] = Field(default_factory=list)
+
+
+class ScoreLeaderboardResponse(BaseModel):
+    """Leaderboard list response."""
+
+    data: List[ScoreLeaderboardEntry]
+    pagination: PaginationMeta
+    total_participants: int
+
+
+class ActivityBreakdown(BaseModel):
+    """Per-activity minutes and points."""
+
+    minutes: float
+    points: float
+    percentage: float
+
+
+class ScoreDetailResponse(BaseModel):
+    """Full score breakdown for score card."""
+
+    participant_id: UUID
+    name: str
+    team_name: str
+    track: str
+    total_score: float
+    rank: Optional[int] = None
+    tags: List[str] = Field(default_factory=list)
+    current_zone: Optional[str] = None
+    current_activity: Optional[str] = None
+    photo_base64: Optional[str] = None
+    radar_data: List[RadarAxis] = Field(default_factory=list)
+    breakdown: dict[str, ActivityBreakdown] = Field(default_factory=dict)
+    registered_at: Optional[datetime] = None
+    last_seen_at: Optional[datetime] = None
+
+
+class ActivityTimelineHour(BaseModel):
+    """Hourly activity rollup."""
+
+    hour: str
+    zone: str
+    primary_activity: str
+    minutes: float
+
+
+class ActivityTimelineResponse(BaseModel):
+    """Timeline response."""
+
+    timeline: List[ActivityTimelineHour]
+
+
+class CameraResponse(BaseModel):
+    """Camera list item."""
+
+    id: str
+    name: Optional[str] = None
+    floor: Optional[int] = None
+    rtsp_url: Optional[str] = None
+    is_active: bool = True
+
+
+class ActiveParticipant(BaseModel):
+    """Currently active participant."""
+
+    participant_id: str
+    zone: str
+    activity: str
+    score: float
+    last_seen: str

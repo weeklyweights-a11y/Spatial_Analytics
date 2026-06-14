@@ -202,6 +202,53 @@ class CameraWorker:
         annotated = self.label_annotator.annotate(scene=annotated, detections=detections, labels=labels)
         return annotated
 
+    def _publish_tracking(
+        self,
+        detections: sv.Detections,
+        activities: list[str],
+        scale: float,
+        frame_width: int,
+        frame_height: int,
+    ) -> None:
+        """Publish bbox overlay data in MJPEG output coordinate space."""
+        persons: list[dict[str, Any]] = []
+        if detections.is_empty() or detections.tracker_id is None:
+            payload = {
+                "type": "tracking",
+                "camera_id": self.camera_id,
+                "persons": persons,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+            redis_sync.publish_tracking_update(self.camera_id, payload)
+            return
+
+        for i, tid in enumerate(detections.tracker_id):
+            x1, y1, x2, y2 = detections.xyxy[i].tolist()
+            bbox = [x1 * scale, y1 * scale, x2 * scale, y2 * scale]
+            track_id = int(tid) if tid is not None else -1
+            pid, sim = self.linker.get_participant(track_id)
+            act = activities[i] if i < len(activities) else "idle"
+            name = self.linker.get_display_name(track_id) if tid is not None else "Unknown"
+            person: dict[str, Any] = {
+                "track_id": track_id,
+                "participant_id": pid,
+                "name": name,
+                "bbox": bbox,
+                "activity": act,
+                "confidence": float(sim) if pid else 0.0,
+                "frame_width": frame_width,
+                "frame_height": frame_height,
+            }
+            persons.append(person)
+
+        payload = {
+            "type": "tracking",
+            "camera_id": self.camera_id,
+            "persons": persons,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        redis_sync.publish_tracking_update(self.camera_id, payload)
+
     def _process_frame(self, frame: np.ndarray) -> None:
         t0 = time.monotonic()
         try:
@@ -253,12 +300,24 @@ class CameraWorker:
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                     }
                     redis_sync.push_activity_event(event)
+                    redis_sync.update_participant_state(
+                        pid,
+                        zname,
+                        act,
+                        0.0,
+                        last_seen=datetime.now(timezone.utc).isoformat(),
+                    )
 
         annotated = self._annotate_frame(frame, detections, activities)
         h, w = annotated.shape[:2]
+        scale = 1.0
+        out_w, out_h = w, h
         if w > 1280:
             scale = 1280 / w
-            annotated = cv2.resize(annotated, (1280, int(h * scale)))
+            out_w = 1280
+            out_h = int(h * scale)
+            annotated = cv2.resize(annotated, (out_w, out_h))
+        self._publish_tracking(detections, activities, scale, out_w, out_h)
         _, jpeg = cv2.imencode(".jpg", annotated, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
         redis_sync.set_camera_frame(
             self.camera_id,

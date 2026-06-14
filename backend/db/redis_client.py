@@ -50,14 +50,22 @@ async def get_leaderboard(limit: int = 50) -> list[tuple[str, float]]:
 
 
 async def update_participant_state(
-    participant_id: str, zone: str, activity: str, score: float
+    participant_id: str,
+    zone: str,
+    activity: str,
+    score: float,
+    last_seen: Optional[str] = None,
 ) -> None:
     """HSET participant state hash."""
     r = await init_redis()
-    await r.hset(
-        f"participant:{participant_id}",
-        mapping={"zone": zone, "activity": activity, "score": str(score)},
-    )
+    mapping: dict[str, str] = {
+        "zone": zone,
+        "activity": activity,
+        "score": str(score),
+    }
+    if last_seen:
+        mapping["last_seen"] = last_seen
+    await r.hset(f"participant:{participant_id}", mapping=mapping)
 
 
 async def get_participant_state(participant_id: str) -> dict[str, str]:
@@ -86,13 +94,19 @@ async def push_activity_event(event: dict[str, Any]) -> str:
 
 
 async def read_activity_events(last_id: str = "0", count: int = 100) -> list[dict[str, Any]]:
-    """XREAD from activity_stream."""
+    """Read recent entries from activity_stream via XRANGE."""
     r = await init_redis()
-    result = await r.xread({ACTIVITY_STREAM: last_id}, count=count, block=None)
+    start = "-" if last_id in ("0", "0-0") else f"({last_id}"
+    messages = await r.xrange(ACTIVITY_STREAM, min=start, max="+", count=count)
     events: list[dict[str, Any]] = []
-    for _stream, messages in result:
-        for msg_id, fields in messages:
-            events.append({"id": msg_id, **fields})
+    for msg_id, fields in messages:
+        parsed: dict[str, Any] = {"id": msg_id}
+        for key, value in fields.items():
+            try:
+                parsed[key] = json.loads(value)
+            except (json.JSONDecodeError, TypeError):
+                parsed[key] = value
+        events.append(parsed)
     return events
 
 

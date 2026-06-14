@@ -18,7 +18,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from backend.api import auth, health, metrics, participants, registration
+from backend.api import auth, cameras, health, metrics, participants, registration, scores, tracking, websocket as ws_routes
 from backend.config import get_settings
 from backend.core.face_detector import FaceDetector
 from backend.core.face_matcher import FaceMatcher
@@ -89,8 +89,10 @@ async def lifespan(app: FastAPI):
         app.state.face_recognizer = None
 
     task = asyncio.create_task(_health_log_loop(app))
+    ws_task = asyncio.create_task(ws_routes.scores_updated_subscriber())
     yield
     task.cancel()
+    ws_task.cancel()
     await close_redis()
 
 
@@ -148,6 +150,10 @@ def create_app() -> FastAPI:
     app.include_router(auth.router)
     app.include_router(registration.router)
     app.include_router(participants.router)
+    app.include_router(scores.router)
+    app.include_router(tracking.router)
+    app.include_router(cameras.router)
+    app.include_router(ws_routes.router)
     app.include_router(health.router)
     app.include_router(metrics.router)
 

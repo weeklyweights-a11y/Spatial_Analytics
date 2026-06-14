@@ -10,6 +10,7 @@ import AnalyticsPage from "./pages/Analytics";
 import SponsorReportsPage from "./pages/SponsorReports";
 import RegistrationPage from "./pages/Registration";
 import SettingsPage from "./pages/Settings";
+import ParticipantProfilePage from "./pages/ParticipantProfile";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth();
@@ -38,6 +39,7 @@ export function App() {
           <Route path="sponsors" element={<SponsorReportsPage />} />
           <Route path="registration" element={<RegistrationPage />} />
           <Route path="settings" element={<SettingsPage />} />
+          <Route path="participant/:id" element={<ParticipantProfilePage />} />
         </Route>
       </Routes>
     </AuthProvider>

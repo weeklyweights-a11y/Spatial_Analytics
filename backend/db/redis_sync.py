@@ -139,3 +139,97 @@ def close_sync_redis() -> None:
     if _redis_bin is not None:
         _redis_bin.close()
         _redis_bin = None
+
+
+SCORING_LAST_ID_KEY = "scoring_last_id"
+SCORING_LAST_FLUSH_KEY = "scoring_last_flush_at"
+SCORING_STATUS_KEY = "scoring_status"
+SCORES_UPDATED_CHANNEL = "scores_updated"
+
+
+def get_scoring_last_id() -> Optional[str]:
+    r = get_sync_redis()
+    val = r.get(SCORING_LAST_ID_KEY)
+    return val if val else None
+
+
+def set_scoring_last_id(msg_id: str) -> None:
+    r = get_sync_redis()
+    r.set(SCORING_LAST_ID_KEY, msg_id)
+
+
+def set_scoring_last_flush_at(iso_ts: str) -> None:
+    r = get_sync_redis()
+    r.set(SCORING_LAST_FLUSH_KEY, iso_ts)
+
+
+def set_scoring_heartbeat(
+    last_flush_at: str,
+    last_duration_ms: int,
+    events_processed: int,
+    status: str,
+) -> None:
+    r = get_sync_redis()
+    r.hset(
+        SCORING_STATUS_KEY,
+        mapping={
+            "last_flush_at": last_flush_at,
+            "last_duration_ms": str(last_duration_ms),
+            "events_processed": str(events_processed),
+            "status": status,
+        },
+    )
+
+
+def publish_scores_updated() -> None:
+    r = get_sync_redis()
+    r.publish(SCORES_UPDATED_CHANNEL, "1")
+
+
+def publish_tracking_update(camera_id: str, payload: dict[str, Any]) -> None:
+    r = get_sync_redis()
+    r.publish(f"tracking:{camera_id}", json.dumps(payload))
+
+
+def update_participant_state(
+    participant_id: str,
+    zone: str,
+    activity: str,
+    score: float,
+    last_seen: Optional[str] = None,
+) -> None:
+    r = get_sync_redis()
+    mapping: dict[str, str] = {
+        "zone": zone,
+        "activity": activity,
+        "score": str(score),
+    }
+    if last_seen:
+        mapping["last_seen"] = last_seen
+    r.hset(f"participant:{participant_id}", mapping=mapping)
+
+
+def update_leaderboard_sync(participant_id: str, score: float) -> None:
+    r = get_sync_redis()
+    r.zadd("leaderboard", {participant_id: score})
+
+
+def add_visited_zone(participant_id: str, zone_name: str) -> None:
+    r = get_sync_redis()
+    r.sadd(f"visited_zones:{participant_id}", zone_name)
+
+
+def visited_zone_count(participant_id: str) -> int:
+    r = get_sync_redis()
+    return int(r.scard(f"visited_zones:{participant_id}"))
+
+
+def get_scoring_status() -> dict[str, str]:
+    r = get_sync_redis()
+    return r.hgetall(SCORING_STATUS_KEY)
+
+
+def get_scoring_last_flush_at() -> Optional[str]:
+    r = get_sync_redis()
+    val = r.get(SCORING_LAST_FLUSH_KEY)
+    return val if val else None

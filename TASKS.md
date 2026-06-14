@@ -6,7 +6,7 @@
 |-------|-------|--------|----------------|-------------|
 | 1 | Infrastructure + Registration | Complete | 4-5 hours | None |
 | 2 | Camera Pipeline + Identity | Complete | 5-6 hours | Phase 1 |
-| 3 | Scoring Engine + CCTV Wall | Not Started | 5-6 hours | Phase 2 |
+| 3 | Scoring Engine + CCTV Wall | Complete | 5-6 hours | Phase 2 |
 | 4 | Heatmap + Analytics + Alerts | Not Started | 4-5 hours | Phase 3 |
 | 5 | Sponsors + Judging + Export | Not Started | 3-4 hours | Phase 3 |
 | 6 | Ship-Readiness | Not Started | 3-4 hours | Phase 4, 5 |
@@ -121,7 +121,7 @@ Status legend: Not Started | In Progress | Complete | Blocked
 - Sponsor engagement aggregation: unique visitors, dwell time, return visits, peak hours
 - Sponsor report page per sponsor with traffic charts
 - PDF export of sponsor reports (reportlab or weasyprint)
-- Full participant profile page: complete timeline, radar chart, sponsor visits, teams visited
+- Full participant profile page with timeline, radar chart, tags (Phase 3 — see ParticipantProfile)
 - Compare mode: select 2-3 participants, view side-by-side radar charts and scores
 - CSV export: all scores, all activity logs
 - Trajectory export in OpenTraj format (timestamp, participant_id, x, y, activity)

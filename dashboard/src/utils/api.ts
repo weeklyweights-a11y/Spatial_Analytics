@@ -16,6 +16,16 @@ export function setAuthToken(token: string | null): void {
   }
 }
 
+api.interceptors.response.use(
+  (res) => res,
+  (err) => {
+    if (err.response?.status === 401) {
+      window.dispatchEvent(new CustomEvent("spatialscore:unauthorized"));
+    }
+    return Promise.reject(err);
+  }
+);
+
 export function parseApiError(err: unknown): string {
   if (err instanceof AxiosError) {
     const data = err.response?.data as ApiError | undefined;

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
 import { setAuthToken } from "../utils/api";
 
 interface AppState {
@@ -23,6 +23,9 @@ export const useAppStore = create<AppState>()(
         set({ token: null, role: null });
       },
     }),
-    { name: "spatialscore-auth" }
+    {
+      name: "spatialscore-auth",
+      storage: createJSONStorage(() => sessionStorage),
+    }
   )
 );

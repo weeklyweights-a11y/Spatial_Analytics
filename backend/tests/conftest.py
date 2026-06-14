@@ -70,9 +70,40 @@ def sync_engine():
     engine = create_engine(settings.database_url_sync)
     try:
         Base.metadata.create_all(engine)
+        _ensure_partitioned_activity_logs(engine)
         yield engine
     except Exception as exc:
         pytest.skip(f"PostgreSQL not available: {exc}")
+
+
+def _ensure_partitioned_activity_logs(engine) -> None:
+    """Replace ORM-created activity_logs with a range-partitioned parent + current hour child."""
+    from datetime import datetime, timezone
+
+    from sqlalchemy import text
+
+    from backend.db.partitions import ensure_activity_log_partition
+
+    with engine.begin() as conn:
+        conn.execute(text("DROP TABLE IF EXISTS activity_logs CASCADE"))
+        conn.execute(
+            text(
+                """
+                CREATE TABLE activity_logs (
+                    id BIGSERIAL,
+                    participant_id UUID NOT NULL REFERENCES participants(id),
+                    camera_id VARCHAR(50) NOT NULL,
+                    zone_id UUID NOT NULL REFERENCES zones(id),
+                    activity VARCHAR(50) NOT NULL,
+                    bbox JSONB,
+                    confidence FLOAT,
+                    timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    PRIMARY KEY (id, timestamp)
+                ) PARTITION BY RANGE (timestamp)
+                """
+            )
+        )
+    ensure_activity_log_partition(engine, datetime.now(timezone.utc))
 
 
 @pytest_asyncio.fixture

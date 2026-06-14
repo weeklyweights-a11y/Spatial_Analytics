@@ -12,6 +12,7 @@ from backend.api.schemas import CameraHealthStatus, HealthCheckDetail, HealthRes
 from backend.config import get_settings
 from backend.db.database import get_db, engine
 from backend.db.redis_client import get_camera_statuses, get_redis
+from backend.db.redis_sync import get_scoring_last_flush_at, get_scoring_status
 from backend.middleware.rate_limit import limiter
 
 settings = get_settings()
@@ -100,6 +101,30 @@ async def health_check(
         checks["cameras"] = HealthCheckDetail(status="ok" if not any(c.stale for c in camera_statuses) else "degraded")
     except Exception as exc:
         checks["cameras"] = HealthCheckDetail(status="error", detail=str(exc))
+
+    try:
+        flush_at = get_scoring_last_flush_at()
+        status_fields = get_scoring_status()
+        worker_status = status_fields.get("status", "unknown")
+        lag_ok = True
+        detail_parts = [f"worker={worker_status}"]
+        if flush_at:
+            from datetime import datetime, timezone
+
+            flush_dt = datetime.fromisoformat(flush_at.replace("Z", "+00:00"))
+            lag = (datetime.now(timezone.utc) - flush_dt).total_seconds()
+            detail_parts.append(f"lag={lag:.0f}s")
+            lag_ok = lag < settings.SCORING_FLUSH_INTERVAL * 2
+        scoring_ok = worker_status == "running" and lag_ok
+        checks["scoring_engine"] = HealthCheckDetail(
+            status="ok" if scoring_ok else "degraded",
+            detail=", ".join(detail_parts),
+        )
+        if not scoring_ok:
+            all_ok = False
+    except Exception as exc:
+        checks["scoring_engine"] = HealthCheckDetail(status="error", detail=str(exc))
+        all_ok = False
 
     status_str = "healthy" if all_ok else "degraded"
     if any(c.status == "error" for c in checks.values()):

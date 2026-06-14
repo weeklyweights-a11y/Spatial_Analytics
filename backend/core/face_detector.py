@@ -20,8 +20,46 @@ class Face:
     landmarks: np.ndarray  # shape (5, 2)
 
 
+def _distance2bbox(points: np.ndarray, distance: np.ndarray, max_shape: tuple[int, int]) -> np.ndarray:
+    """Convert distance predictions to xyxy boxes in input image space."""
+    x1 = points[:, 0] - distance[:, 0]
+    y1 = points[:, 1] - distance[:, 1]
+    x2 = points[:, 0] + distance[:, 2]
+    y2 = points[:, 1] + distance[:, 3]
+    x1 = np.clip(x1, 0, max_shape[1])
+    y1 = np.clip(y1, 0, max_shape[0])
+    x2 = np.clip(x2, 0, max_shape[1])
+    y2 = np.clip(y2, 0, max_shape[0])
+    return np.stack([x1, y1, x2, y2], axis=-1)
+
+
+def _distance2kps(points: np.ndarray, distance: np.ndarray, max_shape: tuple[int, int]) -> np.ndarray:
+    """Convert distance predictions to 5-point landmarks (N, 10)."""
+    preds = []
+    for i in range(0, distance.shape[1], 2):
+        px = points[:, 0] + distance[:, i]
+        py = points[:, 1] + distance[:, i + 1]
+        px = np.clip(px, 0, max_shape[1])
+        py = np.clip(py, 0, max_shape[0])
+        preds.append(px)
+        preds.append(py)
+    return np.stack(preds, axis=-1)
+
+
+def _anchor_centers(height: int, width: int, stride: int, num_anchors: int) -> np.ndarray:
+    """Generate anchor center points for one FPN level."""
+    anchor_centers = np.stack(np.mgrid[:height, :width][::-1], axis=-1).astype(np.float32)
+    anchor_centers = (anchor_centers * stride).reshape((-1, 2))
+    if num_anchors > 1:
+        anchor_centers = np.stack([anchor_centers] * num_anchors, axis=1).reshape((-1, 2))
+    return anchor_centers
+
+
 class FaceDetector:
     """SCRFD-10G ONNX wrapper."""
+
+    _strides = (8, 16, 32)
+    _num_anchors = 2
 
     def __init__(self, model_path: Optional[Path] = None) -> None:
         settings = get_settings()
@@ -46,49 +84,91 @@ class FaceDetector:
 
     def detect(self, image: np.ndarray, threshold: float = 0.5) -> list[Face]:
         """Detect faces in BGR image."""
-        blob, scale, (orig_w, orig_h) = self._preprocess(image)
+        blob, scale, _orig_size = self._preprocess(image)
         outputs = self.session.run(None, {self.input_name: blob})
 
-        faces: list[Face] = []
-        # Parse SCRFD multi-scale outputs (buffalo_l det_10g layout)
-        scores_list, bboxes_list, kpss_list = [], [], []
+        scores_list: list[np.ndarray] = []
+        bboxes_list: list[np.ndarray] = []
+        kpss_list: list[np.ndarray] = []
         for out in outputs:
             if out.ndim == 2 and out.shape[1] == 1:
                 scores_list.append(out)
             elif out.ndim == 2 and out.shape[1] == 4:
                 bboxes_list.append(out)
-            elif out.ndim == 3:
+            elif out.ndim == 2 and out.shape[1] == 10:
                 kpss_list.append(out)
 
-        if not scores_list:
-            # Fallback: try standard 3-output format
-            if len(outputs) >= 3:
-                scores_list = [outputs[0].reshape(-1, 1)]
-                bboxes_list = [outputs[1].reshape(-1, 4)]
-                if outputs[2].ndim >= 2:
-                    kpss_list = [outputs[2].reshape(-1, 5, 2)]
+        input_h, input_w = self.input_size
+        max_shape = (input_h, input_w)
+        all_scores: list[float] = []
+        all_boxes: list[np.ndarray] = []
+        all_landmarks: list[np.ndarray] = []
 
-        for scores, bboxes, kpss in zip(scores_list, bboxes_list, kpss_list):
-            for i, score in enumerate(scores.flatten()):
-                if score < threshold:
-                    continue
-                box = bboxes[i] / scale
-                x1, y1, x2, y2 = box[:4]
-                x1 = max(0, min(orig_w, x1))
-                y1 = max(0, min(orig_h, y1))
-                x2 = max(0, min(orig_w, x2))
-                y2 = max(0, min(orig_h, y2))
+        for idx, stride in enumerate(self._strides):
+            if idx >= len(scores_list) or idx >= len(bboxes_list):
+                break
+            scores = scores_list[idx].reshape(-1)
+            bbox_preds = bboxes_list[idx] * stride
+            kps_preds = kpss_list[idx] * stride if idx < len(kpss_list) else None
+
+            height = input_h // stride
+            width = input_w // stride
+            anchors = _anchor_centers(height, width, stride, self._num_anchors)
+            boxes = _distance2bbox(anchors, bbox_preds, max_shape)
+
+            pos_inds = np.where(scores >= threshold)[0]
+            for i in pos_inds:
+                box = boxes[i] / scale
+                x1, y1, x2, y2 = box
                 if x2 <= x1 or y2 <= y1:
                     continue
-                kps = kpss[i].reshape(5, 2) / scale if i < len(kpss) else np.zeros((5, 2))
-                faces.append(
-                    Face(
-                        bbox=np.array([x1, y1, x2, y2], dtype=np.float32),
-                        confidence=float(score),
-                        landmarks=kps.astype(np.float32),
-                    )
-                )
+                if kps_preds is not None:
+                    kps = _distance2kps(anchors, kps_preds, max_shape)[i].reshape(5, 2) / scale
+                else:
+                    kps = np.zeros((5, 2), dtype=np.float32)
+                all_scores.append(float(scores[i]))
+                all_boxes.append(box.astype(np.float32))
+                all_landmarks.append(kps.astype(np.float32))
 
-        # Deduplicate overlapping boxes — keep highest confidence
+        if not all_scores:
+            return []
+
+        keep = self._nms(all_boxes, all_scores, iou_threshold=0.4)
+        faces: list[Face] = []
+        for i in keep:
+            faces.append(
+                Face(
+                    bbox=all_boxes[i],
+                    confidence=all_scores[i],
+                    landmarks=all_landmarks[i],
+                )
+            )
         faces.sort(key=lambda f: f.confidence, reverse=True)
         return faces
+
+    @staticmethod
+    def _nms(boxes: list[np.ndarray], scores: list[float], iou_threshold: float) -> list[int]:
+        """Greedy NMS; returns indices to keep."""
+        if not boxes:
+            return []
+        arr = np.array(boxes, dtype=np.float32)
+        order = np.argsort(scores)[::-1]
+        keep: list[int] = []
+        while order.size > 0:
+            i = int(order[0])
+            keep.append(i)
+            if order.size == 1:
+                break
+            xx1 = np.maximum(arr[i, 0], arr[order[1:], 0])
+            yy1 = np.maximum(arr[i, 1], arr[order[1:], 1])
+            xx2 = np.minimum(arr[i, 2], arr[order[1:], 2])
+            yy2 = np.minimum(arr[i, 3], arr[order[1:], 3])
+            w = np.maximum(0.0, xx2 - xx1)
+            h = np.maximum(0.0, yy2 - yy1)
+            inter = w * h
+            area_i = (arr[i, 2] - arr[i, 0]) * (arr[i, 3] - arr[i, 1])
+            area_o = (arr[order[1:], 2] - arr[order[1:], 0]) * (arr[order[1:], 3] - arr[order[1:], 1])
+            iou = inter / (area_i + area_o - inter + 1e-6)
+            inds = np.where(iou <= iou_threshold)[0]
+            order = order[inds + 1]
+        return keep

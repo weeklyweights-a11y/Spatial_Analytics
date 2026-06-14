@@ -142,7 +142,7 @@ async def register_participant(
         db.add(participant)
         db.add(Score(participant_id=participant_id))
         await db.flush()
-        face_matcher.maybe_save()
+        face_matcher.save()
     except Exception as exc:
         face_matcher.rollback_last_add()
         logger.error("Database connection failed: {error}", error=str(exc))

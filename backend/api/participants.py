@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import FileResponse
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -74,6 +75,26 @@ async def get_participant(
     if score:
         data["total_score"] = score.total_score
     return {"data": data}
+
+
+@router.get("/{participant_id}/photo")
+async def get_participant_photo(
+    participant_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(require_role(["admin", "operator"])),
+) -> FileResponse:
+    """Serve registration photo file."""
+    result = await db.execute(select(Participant).where(Participant.id == participant_id))
+    participant = result.scalar_one_or_none()
+    if participant is None or participant.opted_out:
+        raise HTTPException(status_code=404, detail={"error": "Participant not found", "code": "NOT_FOUND"})
+    path = Path(participant.photo_path) if participant.photo_path else Path(f"/app/data/faces/{participant_id}.jpg")
+    if not path.exists():
+        alt = Path("/app/data/faces") / f"{participant_id}.jpg"
+        path = alt if alt.exists() else path
+    if not path.exists():
+        raise HTTPException(status_code=404, detail={"error": "Photo not found", "code": "NOT_FOUND"})
+    return FileResponse(path, media_type="image/jpeg")
 
 
 @router.delete("/{participant_id}")

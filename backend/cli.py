@@ -34,6 +34,19 @@ def create_user(username: str, password: str, role: str) -> None:
         print(f"Created user {username} with role {role}")
 
 
+def reset_password(username: str, password: str) -> None:
+    """Update password for an existing dashboard user."""
+    settings = get_settings()
+    engine = create_engine(settings.database_url_sync)
+    with Session(engine) as session:
+        user = session.execute(select(User).where(User.username == username)).scalar_one_or_none()
+        if user is None:
+            raise SystemExit(f"User {username} not found")
+        user.password_hash = pwd_context.hash(password)
+        session.commit()
+        print(f"Reset password for {username}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="SpatialScore CLI")
     sub = parser.add_subparsers(dest="command")
@@ -43,9 +56,15 @@ def main() -> None:
     create.add_argument("--password", required=True)
     create.add_argument("--role", required=True)
 
+    reset = sub.add_parser("reset-password")
+    reset.add_argument("--username", required=True)
+    reset.add_argument("--password", required=True)
+
     args = parser.parse_args()
     if args.command == "create-user":
         create_user(args.username, args.password, args.role)
+    elif args.command == "reset-password":
+        reset_password(args.username, args.password)
     else:
         parser.print_help()
 

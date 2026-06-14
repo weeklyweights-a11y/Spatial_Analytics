@@ -1,6 +1,13 @@
 # SpatialScore
 
-Real-time hackathon intelligence platform — Phase 1: infrastructure + face registration.
+Real-time hackathon intelligence platform — Phase 3: scoring engine + CCTV wall MVP.
+
+## Phase 3 dashboard
+
+- **CCTV wall:** `/cctv-wall` (admin/operator) — MJPEG grid, click-to-inspect score cards
+- **Viewer role:** `/leaderboard` and `/heatmap` only; no PII score detail or camera streams
+- **Same-origin:** dashboard nginx proxies `/api/v1/stream/` and `/ws/` with cookies for MJPEG auth
+- **Verify:** `python scripts/verify_phase3_e2e.py --full` after compose + scoring worker up
 
 ## Prerequisites
 

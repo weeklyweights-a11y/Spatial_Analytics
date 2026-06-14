@@ -17,7 +17,7 @@ export default function LoginPage() {
       const res = await api.post("/api/v1/auth/login", { username, password });
       const { token, role } = res.data.data;
       setAuth(token, role);
-      navigate("/cctv-wall");
+      navigate(role === "viewer" ? "/leaderboard" : "/cctv-wall");
     } catch (err) {
       setError(parseApiError(err));
     }
