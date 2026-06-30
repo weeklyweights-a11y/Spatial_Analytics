@@ -21,3 +21,9 @@ spatialscore-deploy.tar
 htmlcov/
 *.log
 test_data/
+
+# Local documentation and editor rules (keep on disk, not in repo)
+*.md
+!README.md
+.cursorrules
+.cursor/
