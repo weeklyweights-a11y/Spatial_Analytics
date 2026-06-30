@@ -1,79 +1,62 @@
 # SpatialScore
 
-Real-time hackathon intelligence platform — Phase 3: scoring engine + CCTV wall MVP.
+Real-time spatial analytics for multi-camera venues. SpatialScore ingests CCTV streams, identifies people by face, tracks them across cameras, classifies activity from body pose and zone occupancy, and surfaces live scores, heatmaps, sponsor engagement, and exportable datasets for organizers.
 
-## Phase 3 dashboard
+## What it does
 
-- **CCTV wall:** `/cctv-wall` (admin/operator) — MJPEG grid, click-to-inspect score cards
-- **Viewer role:** `/leaderboard` and `/heatmap` only; no PII score detail or camera streams
-- **Same-origin:** dashboard nginx proxies `/api/v1/stream/` and `/ws/` with cookies for MJPEG auth
-- **Verify:** `python scripts/verify_phase3_e2e.py --full` after compose + scoring worker up
+- **Identity:** SCRFD face detection + ArcFace embeddings + FAISS matching at registration; re-identification on every camera stream
+- **Perception:** DEIMv2 whole-body (49 keypoints) person detection, ByteTrack tracking, polygon zone assignment
+- **Activity:** Zone type + pose heuristics classify coding, collaborating, mentoring, presenting, networking, and more
+- **Scoring:** Weighted minute accumulation with behavioral tags; live leaderboard and participant profiles
+- **Operations:** CCTV monitoring wall (annotated MJPEG), heatmap, analytics, alerts, zone editor
+- **Sponsors:** LineZone entry/exit counting, booth dwell reports, PDF exports
+- **Export:** Admin CSV/TSV for scores, activity logs, and OpenTraj-compatible trajectories
 
-## Prerequisites
+## Architecture
 
-- **GCP project:** `buildathon-499300` (number `635695586626`), account `bhargavin189@gmail.com`
-- GCE **g2-standard-8** VM with **NVIDIA L4**, Ubuntu 24.04
-- Docker + NVIDIA Container Toolkit
-- SSH access
-- Optional domain: `https://spatialscore.buildathon.co`
+![SpatialScore system architecture](docs/assets/spatialscore-architecture.png)
 
-```bash
-gcloud config set account bhargavin189@gmail.com
-gcloud config set project buildathon-499300
-```
+Single-VM deployment: PostgreSQL, Redis, API, workers, and dashboard orchestrated with Docker Compose. ONNX Runtime (CUDA) for all inference — no PyTorch at runtime.
 
-## Deployed VM (buildathon-499300)
+**Data flow:** venue cameras relay through MediaMTX; each camera worker runs DEIMv2 detection, ByteTrack tracking, zone classification, and periodic face re-ID. Activity and sponsor crossing events land in Redis Streams. The scoring worker flushes to PostgreSQL and updates live Redis state; the heatmap worker publishes occupancy snapshots. The FastAPI layer serves REST, WebSockets, MJPEG streams, sponsor PDFs, and admin exports to the React dashboard.
 
-| Field | Value |
-|-------|-------|
-| Instance | `spatialscore-vm` |
-| Zone | `asia-east1-a` |
-| Type | `e2-standard-8` (interim CPU — upgrade to `g2-standard-8` + L4 when GPU quota approved) |
-| External IP | set via `gcloud compute instances describe spatialscore-vm --format='get(networkInterfaces[0].accessConfigs[0].natIP)'` |
+## Tech stack
 
-```bash
-gcloud config set account bhargavin189@gmail.com
-gcloud config set project buildathon-499300
-gcloud compute ssh spatialscore-vm --zone=asia-east1-a
-cd ~/spatialscore && sudo docker compose ps
-```
+| Layer | Choices |
+|-------|---------|
+| CV | DEIMv2-wholebody49, InsightFace SCRFD/ArcFace, supervision (ByteTrack, PolygonZone, LineZone) |
+| API | FastAPI, async SQLAlchemy, JWT auth |
+| Data | PostgreSQL 16, Redis 7 (streams, leaderboard, live state) |
+| UI | React 18, TypeScript, Vite, Tailwind, Recharts |
+| PDF | WeasyPrint, Jinja2, matplotlib |
 
-**GPU quota:** Project global `GPUS_ALL_REGIONS` is currently 0 — request L4 quota in [GCP Console Quotas](https://console.cloud.google.com/iam-admin/quotas?project=buildathon-499300) before switching to `g2-standard-8`.
-
-## Quick start (GCP VM)
+## Quick start
 
 ```bash
-git clone <repo-url> spatialscore && cd spatialscore
-chmod +x scripts/*.sh
-./scripts/setup_gcp.sh
-```
+cp .env.example .env
+# Set DB_PASSWORD and JWT_SECRET (32+ characters)
 
-Or manually:
-
-```bash
-cp .env.example .env   # set DB_PASSWORD, JWT_SECRET (32+ chars)
-./scripts/download_models.sh
+./scripts/download_models.sh   # ONNX weights into models/
 docker compose up -d --build
 docker compose exec api python -m backend.cli create-user --username admin --password YOURPASS --role admin
+python scripts/sync_venue_config.py
 ```
 
-- API: http://localhost:8000/api/v1/health
-- Dashboard: http://localhost:3000
+| Service | URL |
+|---------|-----|
+| API health | http://localhost:8000/api/v1/health |
+| Dashboard | http://localhost:3000 |
 
-## Design notes
+Default roles: **admin** (full access), **operator** (monitoring + reports), **viewer** (leaderboard/heatmap only).
 
-- **Uvicorn 1 worker** in Phase 1 (FAISS in-process; multi-worker would stale indexes across registration tablets)
-- **Registration staff workflow:** verify participant **physical ID** before face capture ([prd.md](prd.md))
-- **Venue signage** and post-event anonymize: Phase 6 ops
+## Configuration
 
-## Docs
+- `configs/cameras.yaml` — RTSP URLs and floor assignment
+- `configs/zones.yaml` — polygon zones and sponsor entrance lines
+- `configs/sponsors.yaml` — sponsor booths and tiers
+- `configs/scoring.yaml` — activity weights (also editable in Settings UI)
 
-- [docs/PHASE_1_SPEC.md](docs/PHASE_1_SPEC.md)
-- [docs/PHASE_2_SPEC.md](docs/PHASE_2_SPEC.md)
-- [docs/PHASE_2_E2E_CHECKLIST.md](docs/PHASE_2_E2E_CHECKLIST.md)
-- [docs/REFERENCE_REPOS.md](docs/REFERENCE_REPOS.md)
-- [models/README.md](models/README.md)
-- [docs/BROWSER_E2E_CHECKLIST.md](docs/BROWSER_E2E_CHECKLIST.md)
+Venue config sync: `python scripts/sync_venue_config.py`
 
 ## Development
 
@@ -81,37 +64,30 @@ docker compose exec api python -m backend.cli create-user --username admin --pas
 pip install -r backend/requirements.txt
 export JWT_SECRET=test-jwt-secret-key-minimum-32-characters-long
 pytest backend/tests/
-cd dashboard && npm install && npm test
+
+cd dashboard && npm install && npm run build
 ```
 
-## Phase 2 testing (camera pipeline)
+GPU workers need NVIDIA Container Toolkit. CPU-only overlay: `docker-compose.cpu.yml`.
+
+## Verification
 
 ```bash
-# CPU-only VM (no GPU quota):
-docker compose up -d --build
-
-# GPU production VM:
-# docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
-
-# Push test RTMP (host mediamtx when on VM):
-python scripts/simulate_streams.py --video test_data/test.mp4 --camera-id cam01 --host mediamtx
-
-# Inspect Redis events:
-redis-cli XREAD COUNT 5 STREAMS activity_stream 0
-redis-cli HGETALL zone_occupancy
-redis-cli HGETALL camera_status:CAM-01
-
-# Automated E2E verification (on VM):
-python scripts/verify_phase2_e2e.py --check-only
-python scripts/verify_phase2_e2e.py --full --start-stream --video test_data/test.mp4
-
-# Integration test suite (requires models, test video, ffmpeg, Redis, MediaMTX):
-export RUN_INTEGRATION_TESTS=1 DEIMv2_INTEGRATION=1
-pytest backend/tests/integration/test_camera_pipeline.py backend/tests/integration/test_identity_pipeline.py -v -m integration
+# Phase 5 smoke (API running, admin JWT):
+python scripts/verify_phase5_e2e.py --token <JWT> --base-url http://localhost:8000
 ```
 
-Set `WORKER_DATABASE_URL=postgresql://spatialscore:PASSWORD@postgres:5432/spatialscore` for camera worker name lookup.
+See [docs/PHASE_5_E2E_CHECKLIST.md](docs/PHASE_5_E2E_CHECKLIST.md) for full acceptance checks.
 
-## Phase 1 scope
+## Documentation
 
-Docker Compose (MediaMTX, PostgreSQL, Redis, API, dashboard), JWT auth, SCRFD/ArcFace/FAISS registration, React registration UI. Phase 2 adds camera workers, DEIMv2 pipeline, and Redis activity events.
+| Doc | Topic |
+|-----|-------|
+| [PROJECT.md](PROJECT.md) | Product and data model |
+| [docs/PHASE_*_SPEC.md](docs/) | Phase implementation specs |
+| [docs/REFERENCE_REPOS.md](docs/REFERENCE_REPOS.md) | Upstream patterns |
+| [models/README.md](models/README.md) | Model files and download |
+
+## License
+
+MIT — see [LICENSE](LICENSE).
