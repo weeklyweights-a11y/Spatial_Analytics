@@ -111,7 +111,3 @@ pytest backend/tests/integration/test_camera_pipeline.py backend/tests/integrati
 ```
 
 Set `WORKER_DATABASE_URL=postgresql://spatialscore:PASSWORD@postgres:5432/spatialscore` for camera worker name lookup.
-
-## Phase 1 scope
-
-Docker Compose (MediaMTX, PostgreSQL, Redis, API, dashboard), JWT auth, SCRFD/ArcFace/FAISS registration, React registration UI. Phase 2 adds camera workers, DEIMv2 pipeline, and Redis activity events.
