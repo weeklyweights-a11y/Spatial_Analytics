@@ -23,7 +23,7 @@ ADMIN_USER = os.environ.get("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin")
 TARGET_COUNT = int(os.environ.get("SEED_PARTICIPANT_COUNT", "5"))
 
-HTTP_HEADERS = {"User-Agent": "SpatialScore-Seed/1.0 (hackathon test data)"}
+HTTP_HEADERS = {"User-Agent": "SpatialScore-Seed/1.0 (synthetic test data)"}
 
 
 def _download_jpeg(client: httpx.Client, url: str) -> bytes | None:

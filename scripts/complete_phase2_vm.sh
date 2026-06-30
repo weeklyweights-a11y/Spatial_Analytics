@@ -12,12 +12,12 @@ echo "=== Phase 2 VM completion script ==="
 
 mkdir -p test_data data/faiss logs
 
-HACKATHON_VIDEO="test_data/hackathon_workspace.mp4"
+WORKSPACE_VIDEO="test_data/hackathon_workspace.mp4"
 CAREER_FAIR_VIDEO="test_data/career_fair_meeting.mp4"
 
-if [[ ! -f "$HACKATHON_VIDEO" ]]; then
-  echo "Downloading hackathon-style team planning video (Mixkit)..."
-  wget -q -O "$HACKATHON_VIDEO" "https://assets.mixkit.co/videos/13231/13231-720.mp4"
+if [[ ! -f "$WORKSPACE_VIDEO" ]]; then
+  echo "Downloading team workspace sample video (Mixkit)..."
+  wget -q -O "$WORKSPACE_VIDEO" "https://assets.mixkit.co/videos/13231/13231-720.mp4"
 fi
 
 if [[ ! -f "$CAREER_FAIR_VIDEO" ]]; then
@@ -25,7 +25,7 @@ if [[ ! -f "$CAREER_FAIR_VIDEO" ]]; then
   wget -q -O "$CAREER_FAIR_VIDEO" "https://assets.mixkit.co/videos/46682/46682-720.mp4"
 fi
 
-SIM_VIDEO="$HACKATHON_VIDEO"
+SIM_VIDEO="$WORKSPACE_VIDEO"
 if [[ ! -f "$SIM_VIDEO" ]]; then
   SIM_VIDEO="$CAREER_FAIR_VIDEO"
 fi

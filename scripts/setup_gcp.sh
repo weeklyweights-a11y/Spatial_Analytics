@@ -3,12 +3,7 @@
 set -euo pipefail
 
 echo "=== SpatialScore GCP Setup ==="
-echo "Project: buildathon-499300 (635695586626)"
-echo "Account: bhargavin189@gmail.com"
-
-if command -v gcloud &>/dev/null; then
-  gcloud config set project buildathon-499300 2>/dev/null || true
-fi
+echo "Ensure gcloud is configured: gcloud config set project YOUR_PROJECT_ID"
 
 # 1. NVIDIA driver 550
 echo "Install NVIDIA driver 550 (if not present)..."

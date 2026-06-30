@@ -25,7 +25,7 @@ class Base(DeclarativeBase):
 
 
 class Participant(Base):
-    """Registered hackathon participant."""
+    """Registered venue participant."""
 
     __tablename__ = "participants"
 

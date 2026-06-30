@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     SCORING_FLUSH_INTERVAL: int = 60
     HEATMAP_SNAPSHOT_INTERVAL: int = 10
     MAX_REGISTRATION_STATIONS: int = 10
-    CORS_ORIGINS: str = "http://localhost:3000,https://spatialscore.buildathon.co"
+    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5173"
 
     # Phase 2 camera worker
     DEIMV2_MODEL_PATH: str = ""
@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     BYTETRACK_CONFIG_PATH: str = ""
 
     # Phase 5 sponsor reports
-    EVENT_NAME: str = "Buildathon Dallas"
+    EVENT_NAME: str = "SpatialScore Event"
 
     @field_validator("JWT_SECRET")
     @classmethod
