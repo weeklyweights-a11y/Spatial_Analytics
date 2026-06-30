@@ -70,6 +70,8 @@ cd dashboard && npm install && npm run build
 
 GPU workers need NVIDIA Container Toolkit. CPU-only overlay: `docker-compose.cpu.yml`.
 
+Set `WORKER_DATABASE_URL=postgresql://spatialscore:PASSWORD@postgres:5432/spatialscore` for camera worker name lookup.
+
 ## Verification
 
 ```bash
