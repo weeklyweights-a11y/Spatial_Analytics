@@ -79,17 +79,6 @@ Set `WORKER_DATABASE_URL=postgresql://spatialscore:PASSWORD@postgres:5432/spatia
 python scripts/verify_phase5_e2e.py --token <JWT> --base-url http://localhost:8000
 ```
 
-See [docs/PHASE_5_E2E_CHECKLIST.md](docs/PHASE_5_E2E_CHECKLIST.md) for full acceptance checks.
-
-## Documentation
-
-| Doc | Topic |
-|-----|-------|
-| [PROJECT.md](PROJECT.md) | Product and data model |
-| [docs/PHASE_*_SPEC.md](docs/) | Phase implementation specs |
-| [docs/REFERENCE_REPOS.md](docs/REFERENCE_REPOS.md) | Upstream patterns |
-| [models/README.md](models/README.md) | Model files and download |
-
 ## License
 
 MIT — see [LICENSE](LICENSE).
